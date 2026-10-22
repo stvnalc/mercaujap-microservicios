@@ -4,6 +4,8 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 COPY *.go ./
+# Pruebas unitarias: si alguna falla, la imagen NO se construye
+RUN go test ./...
 # CGO_ENABLED=0 => binario estatico que corre en cualquier Linux
 RUN CGO_ENABLED=0 go build -o servicio-go .
 

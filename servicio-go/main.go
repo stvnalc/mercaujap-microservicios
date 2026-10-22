@@ -3,20 +3,24 @@
 //
 // Endpoints:
 //
-//	GET    /health             -> estado del servicio
-//	GET    /reportes/resumen   -> calcula estadisticas EN VIVO (consulta Python, Node y Java)
-//	POST   /reportes           -> calcula el resumen y lo GUARDA en PostgreSQL
-//	GET    /reportes           -> historial de reportes guardados
-//	GET    /reportes/:id       -> un reporte guardado
-//	DELETE /reportes/:id       -> elimina un reporte guardado
+//	GET    /health               -> estado del servicio
+//	GET    /reportes/resumen     -> calcula estadisticas EN VIVO (?desde=AAAA-MM-DD&hasta=AAAA-MM-DD)
+//	POST   /reportes             -> calcula el resumen y lo GUARDA en PostgreSQL { titulo, desde, hasta }
+//	GET    /reportes             -> historial de reportes guardados
+//	GET    /reportes/:id         -> un reporte guardado (con todo el detalle)
+//	GET    /reportes/:id/csv     -> descarga el reporte en CSV (se abre con Excel)
+//	DELETE /reportes/:id         -> elimina un reporte guardado
 package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -71,13 +75,32 @@ func cors() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Header("Access-Control-Allow-Origin", "*")
 		c.Header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-		c.Header("Access-Control-Allow-Headers", "Content-Type")
+		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		c.Header("Access-Control-Expose-Headers", "Content-Disposition")
 		if c.Request.Method == http.MethodOptions {
 			c.AbortWithStatus(http.StatusNoContent)
 			return
 		}
 		c.Next()
 	}
+}
+
+// usuarioDe lee el nombre que envia el API Gateway (%-codificado).
+func usuarioDe(c *gin.Context) string {
+	if v, err := url.QueryUnescape(c.GetHeader("X-Usuario-Nombre")); err == nil && v != "" {
+		return v
+	}
+	return "Sistema"
+}
+
+func buscarReporte(db *gorm.DB, c *gin.Context) (Reporte, bool) {
+	var reporte Reporte
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil || db.First(&reporte, id).Error != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Reporte no encontrado"})
+		return reporte, false
+	}
+	return reporte, true
 }
 
 func main() {
@@ -98,56 +121,107 @@ func main() {
 	})
 
 	r.GET("/reportes/resumen", func(c *gin.Context) {
-		c.JSON(http.StatusOK, calcularResumen(obtenerDatos(cfg)))
+		periodo, err := nuevoPeriodo(c.Query("desde"), c.Query("hasta"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, calcularResumen(obtenerDatos(cfg), periodo))
 	})
 
 	r.POST("/reportes", func(c *gin.Context) {
-		resumen := calcularResumen(obtenerDatos(cfg))
+		var entrada struct {
+			Titulo string `json:"titulo"`
+			Desde  string `json:"desde"`
+			Hasta  string `json:"hasta"`
+		}
+		_ = c.ShouldBindJSON(&entrada) // el cuerpo es opcional
+		periodo, err := nuevoPeriodo(entrada.Desde, entrada.Hasta)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		datos := obtenerDatos(cfg)
+		if len(datos.NoDisponibles) > 0 {
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"error": "No se puede guardar un reporte incompleto. Sin respuesta de: " + strings.Join(datos.NoDisponibles, ", "),
+			})
+			return
+		}
+		resumen := calcularResumen(datos, periodo)
 		detalle, _ := json.Marshal(resumen)
 
+		titulo := strings.TrimSpace(entrada.Titulo)
+		if titulo == "" {
+			titulo = fmt.Sprintf("Reporte del %s al %s", periodo.Desde.Format("02/01/2006"), periodo.Hasta.Format("02/01/2006"))
+		}
+		if len([]rune(titulo)) > 120 {
+			titulo = string([]rune(titulo)[:120])
+		}
 		productoTop := ""
 		if len(resumen.TopProductos) > 0 {
 			productoTop = resumen.TopProductos[0].Nombre
 		}
 		reporte := Reporte{
+			Titulo:         titulo,
+			Desde:          resumen.Desde,
+			Hasta:          resumen.Hasta,
+			GeneradoPor:    usuarioDe(c),
 			TotalVentas:    resumen.TotalVentas,
+			GananciaBruta:  resumen.GananciaBruta,
 			TotalOrdenes:   resumen.TotalOrdenes,
-			TotalUsuarios:  resumen.TotalUsuarios,
+			TotalUsuarios:  resumen.TotalClientes,
 			TotalProductos: resumen.TotalProductos,
 			ProductoTop:    productoTop,
 			Detalle:        string(detalle),
 		}
 		if err := db.Create(&reporte).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "No se pudo guardar el reporte"})
 			return
 		}
-		c.JSON(http.StatusCreated, reporte.aJSON())
+		c.JSON(http.StatusCreated, reporte.aJSON(true))
 	})
 
 	r.GET("/reportes", func(c *gin.Context) {
 		var reportes []Reporte
-		db.Order("created_at desc").Limit(50).Find(&reportes)
+		db.Omit("detalle").Order("created_at desc").Limit(100).Find(&reportes)
 		salida := make([]ReporteJSON, 0, len(reportes))
 		for _, rep := range reportes {
-			salida = append(salida, rep.aJSON())
+			salida = append(salida, rep.aJSON(false))
 		}
 		c.JSON(http.StatusOK, salida)
 	})
 
 	r.GET("/reportes/:id", func(c *gin.Context) {
-		id, err := strconv.Atoi(c.Param("id"))
-		var reporte Reporte
-		if err != nil || db.First(&reporte, id).Error != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Reporte no encontrado"})
+		if reporte, ok := buscarReporte(db, c); ok {
+			c.JSON(http.StatusOK, reporte.aJSON(true))
+		}
+	})
+
+	r.GET("/reportes/:id/csv", func(c *gin.Context) {
+		reporte, ok := buscarReporte(db, c)
+		if !ok {
 			return
 		}
-		c.JSON(http.StatusOK, reporte.aJSON())
+		var resumen Resumen
+		if err := json.Unmarshal([]byte(reporte.Detalle), &resumen); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "El reporte está dañado"})
+			return
+		}
+		contenido, err := generarCSV(reporte, resumen)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "No se pudo generar el CSV"})
+			return
+		}
+		nombre := fmt.Sprintf("reporte-%d-%s.csv", reporte.ID, reporte.Hasta)
+		c.Header("Content-Disposition", `attachment; filename="`+nombre+`"`)
+		c.Data(http.StatusOK, "text/csv; charset=utf-8", contenido)
 	})
 
 	r.DELETE("/reportes/:id", func(c *gin.Context) {
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Id invalido"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Id inválido"})
 			return
 		}
 		res := db.Delete(&Reporte{}, id)
@@ -157,6 +231,8 @@ func main() {
 		}
 		c.Status(http.StatusNoContent)
 	})
+
+	r.NoRoute(func(c *gin.Context) { c.JSON(http.StatusNotFound, gin.H{"error": "Ruta no encontrada"}) })
 
 	log.Printf("[go] Servicio de reportes escuchando en el puerto %s", cfg.Puerto)
 	if err := r.Run(":" + cfg.Puerto); err != nil {

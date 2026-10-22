@@ -51,9 +51,9 @@ func obtenerDatos(cfg Config) DatosNegocio {
 	}
 
 	wg.Add(3)
-	go consultar("usuarios (Python)", cfg.UsuariosURL+"/usuarios", &datos.Usuarios)
-	go consultar("productos (Node)", cfg.ProductosURL+"/productos", &datos.Productos)
-	go consultar("ordenes (Java)", cfg.OrdenesURL+"/ordenes", &datos.Ordenes)
+	go consultar("Clientes", cfg.UsuariosURL+"/usuarios", &datos.Usuarios)
+	go consultar("Productos", cfg.ProductosURL+"/productos", &datos.Productos)
+	go consultar("Pedidos", cfg.OrdenesURL+"/ordenes", &datos.Ordenes)
 	wg.Wait()
 
 	return datos

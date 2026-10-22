@@ -20,6 +20,8 @@ public class OrdenItem {
 
     private String productoNombre;
 
+    private String sku;
+
     @Column(nullable = false, precision = 12, scale = 2)
     private BigDecimal precioUnitario;
 
@@ -38,6 +40,8 @@ public class OrdenItem {
     public void setId(Long id) { this.id = id; }
     public String getProductoId() { return productoId; }
     public void setProductoId(String productoId) { this.productoId = productoId; }
+    public String getSku() { return sku; }
+    public void setSku(String sku) { this.sku = sku; }
     public String getProductoNombre() { return productoNombre; }
     public void setProductoNombre(String productoNombre) { this.productoNombre = productoNombre; }
     public BigDecimal getPrecioUnitario() { return precioUnitario; }

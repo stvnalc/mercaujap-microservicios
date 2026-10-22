@@ -48,13 +48,16 @@ services:
   # MICROSERVICIOS (uno por lenguaje)
   # ------------------------------------------------------------------
 
-  # Python + FastAPI + SQLAlchemy + PostgreSQL  ->  Usuarios / clientes
+  # Python + FastAPI + SQLAlchemy + PostgreSQL  ->  Usuarios, clientes y autenticacion (JWT)
+  # Consulta a Java antes de eliminar un cliente (si tiene pedidos no se elimina)
   servicio-python:
     build: ./servicio-python
     restart: unless-stopped
     environment:
       PORT: 8000
       DATABASE_URL: postgresql://${DB_USER:-admin}:${DB_PASS:-supersecreta}@postgres:5432/usuarios_db
+      JWT_SECRET: ${JWT_SECRET:-mercaujap-clave-de-desarrollo-cambiar-en-produccion}
+      ORDENES_SERVICE_URL: ${ORDENES_SERVICE_URL:-http://servicio-java:8080}
     ports: ["8001:8000"]
     depends_on:
       postgres:
@@ -98,6 +101,7 @@ services:
       DB_PASS: ${DB_PASS:-supersecreta}
       USUARIOS_SERVICE_URL: ${USUARIOS_SERVICE_URL:-http://servicio-python:8000}
       PRODUCTOS_SERVICE_URL: ${PRODUCTOS_SERVICE_URL:-http://servicio-node:3000}
+      DEMO_DATA: ${DEMO_DATA:-true}
     ports: ["8003:8080"]
     depends_on:
       postgres:
@@ -138,7 +142,7 @@ services:
       start_period: 10s
 
   # ------------------------------------------------------------------
-  # FRONTEND (HTML + CSS + JS servido por Nginx)
+  # FRONTEND (React + Vite + Tailwind + shadcn/ui, compilado y servido por Nginx)
   # ------------------------------------------------------------------
   frontend:
     build: ./frontend
@@ -149,10 +153,12 @@ services:
   # ------------------------------------------------------------------
   # API GATEWAY (BONUS): punto de entrada unico en el puerto 80
   #   /              -> frontend
+  #   /api/auth      -> servicio-python (login)
   #   /api/usuarios  -> servicio-python
   #   /api/productos -> servicio-node
   #   /api/ordenes   -> servicio-java
   #   /api/reportes  -> servicio-go
+  #   Valida el token de sesion de cada peticion (auth_request -> servicio-python)
   # ------------------------------------------------------------------
   gateway:
     # Imagen oficial nginx:alpine + nginx/nginx.conf (ver nginx/Dockerfile)

@@ -9,11 +9,11 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  *
  * Endpoints:
  *   GET    /health                -> estado del servicio
- *   GET    /ordenes               -> lista (filtro opcional ?usuarioId=)
- *   GET    /ordenes/{id}          -> una orden con sus items
- *   POST   /ordenes               -> crea una orden (habla con Python y Node)
- *   PATCH  /ordenes/{id}/estado   -> cambia el estado (CANCELADA devuelve el stock)
- *   DELETE /ordenes/{id}          -> elimina la orden (devuelve el stock si no estaba cancelada)
+ *   GET    /ordenes               -> lista (filtros ?estado= ?usuarioId= ?desde=AAAA-MM-DD ?hasta= ?q=)
+ *   GET    /ordenes/{id}          -> un pedido con sus items e historial de estados
+ *   POST   /ordenes               -> crea un pedido (habla con Python y Node)
+ *   PATCH  /ordenes/{id}/estado   -> avanza el estado (CANCELADA devuelve el stock)
+ *   DELETE /ordenes/{id}          -> elimina un pedido CANCELADO
  */
 @SpringBootApplication
 public class OrdenesApplication {
