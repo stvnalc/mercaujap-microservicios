@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MercaUJAP · Sistema de pedidos</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛒</text></svg>" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="marca">
+      <span class="marca-logo">🛒</span>
+      <div>
+        <strong>MercaUJAP</strong>
+        <small>Microservicios · LPR07304</small>
+      </div>
+    </div>
+
+    <nav class="menu">
+      <button class="menu-item activo" data-seccion="inicio">📊 <span>Inicio</span></button>
+      <button class="menu-item" data-seccion="productos">📦 <span>Productos</span></button>
+      <button class="menu-item" data-seccion="usuarios">👥 <span>Usuarios</span></button>
+      <button class="menu-item" data-seccion="ordenes">🧾 <span>Órdenes</span></button>
+      <button class="menu-item" data-seccion="reportes">📈 <span>Reportes</span></button>
+    </nav>
+
+    <div class="estado-servicios">
+      <h4>Estado de los servicios</h4>
+      <ul id="lista-estado">
+        <li data-svc="gateway"><span class="punto"></span>API Gateway <em>Nginx</em></li>
+        <li data-svc="python"><span class="punto"></span>Usuarios <em>Python</em></li>
+        <li data-svc="node"><span class="punto"></span>Productos <em>Node.js</em></li>
+        <li data-svc="java"><span class="punto"></span>Órdenes <em>Java</em></li>
+        <li data-svc="go"><span class="punto"></span>Reportes <em>Go</em></li>
+      </ul>
+    </div>
+  </aside>
+
+  <main class="contenido">
+    <!-- ============================== INICIO ============================== -->
+    <section id="inicio" class="seccion activa">
+      <header class="encabezado">
+        <div>
+          <h1>Panel general</h1>
+          <p>Estadísticas calculadas en vivo por el servicio de <b>Go</b>, que consulta a Python, Node y Java al mismo tiempo.</p>
+        </div>
+        <span class="etiqueta go">Go · Gin · GORM · /api/reportes/resumen</span>
+      </header>
+
+      <div class="aviso oculto" id="aviso-caidos"></div>
+
+      <div class="kpis">
+        <div class="kpi"><span>Ventas totales</span><strong id="kpi-ventas">—</strong></div>
+        <div class="kpi"><span>Órdenes</span><strong id="kpi-ordenes">—</strong></div>
+        <div class="kpi"><span>Ticket promedio</span><strong id="kpi-ticket">—</strong></div>
+        <div class="kpi"><span>Unidades vendidas</span><strong id="kpi-unidades">—</strong></div>
+        <div class="kpi"><span>Usuarios</span><strong id="kpi-usuarios">—</strong></div>
+        <div class="kpi"><span>Valor del inventario</span><strong id="kpi-inventario">—</strong></div>
+      </div>
+
+      <div class="rejilla-2">
+        <div class="tarjeta">
+          <h3>🏆 Productos más vendidos</h3>
+          <div id="top-productos" class="barras"></div>
+        </div>
+        <div class="tarjeta">
+          <h3>🗂️ Ventas por categoría</h3>
+          <div id="ventas-categoria" class="barras"></div>
+        </div>
+        <div class="tarjeta">
+          <h3>⭐ Mejores clientes</h3>
+          <div id="top-clientes"></div>
+        </div>
+        <div class="tarjeta">
+          <h3>⚠️ Productos con stock bajo (≤ 5)</h3>
+          <div id="stock-bajo"></div>
+        </div>
+      </div>
+
+      <div class="tarjeta">
+        <h3>🧩 Arquitectura del sistema</h3>
+        <div class="arquitectura">
+          <div class="nodo nodo-front">🖥️ Frontend<br><small>HTML · CSS · JS</small></div>
+          <div class="flecha">↓</div>
+          <div class="nodo nodo-gw">🚪 API Gateway<br><small>Nginx :80</small></div>
+          <div class="flecha">↓</div>
+          <div class="fila-servicios">
+            <div class="nodo python">🐍 Usuarios<br><small>Python · FastAPI</small><br><code>PostgreSQL</code></div>
+            <div class="nodo node">🟩 Productos<br><small>Node · Express</small><br><code>MongoDB</code></div>
+            <div class="nodo java">☕ Órdenes<br><small>Java · Spring Boot</small><br><code>PostgreSQL</code></div>
+            <div class="nodo go">🐹 Reportes<br><small>Go · Gin</small><br><code>PostgreSQL</code></div>
+          </div>
+          <p class="nota">Java llama a Python (valida el usuario) y a Node (precio y stock). Go llama a Python, Node y Java para calcular los reportes.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================== PRODUCTOS ============================== -->
+    <section id="productos" class="seccion">
+      <header class="encabezado">
+        <div>
+          <h1>Productos</h1>
+          <p>Catálogo e inventario guardado en <b>MongoDB</b> (base de datos NoSQL de documentos).</p>
+        </div>
+        <span class="etiqueta node">Node.js · Express · Mongoose · /api/productos</span>
+      </header>
+
+      <div class="tarjeta">
+        <h3 id="titulo-form-producto">➕ Nuevo producto</h3>
+        <form id="form-producto" class="formulario">
+          <input type="hidden" name="id" />
+          <label>Nombre<input name="nombre" required placeholder="Ej: Laptop HP" /></label>
+          <label>Categoría<input name="categoria" placeholder="Ej: Computacion" /></label>
+          <label>Precio ($)<input name="precio" type="number" step="0.01" min="0" required /></label>
+          <label>Stock<input name="stock" type="number" min="0" step="1" required /></label>
+          <label>Icono<input name="icono" maxlength="4" placeholder="📦" /></label>
+          <label class="ancho">Descripción<input name="descripcion" placeholder="Detalles del producto" /></label>
+          <div class="acciones">
+            <button type="submit" class="btn primario">Guardar</button>
+            <button type="button" class="btn" id="cancelar-producto">Limpiar</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="barra-herramientas">
+        <input id="buscar-producto" placeholder="🔍 Buscar producto por nombre..." />
+      </div>
+      <div id="grid-productos" class="grid-productos"></div>
+    </section>
+
+    <!-- ============================== USUARIOS ============================== -->
+    <section id="usuarios" class="seccion">
+      <header class="encabezado">
+        <div>
+          <h1>Usuarios</h1>
+          <p>Clientes de la tienda guardados en <b>PostgreSQL</b> (base de datos SQL) con SQLAlchemy.</p>
+        </div>
+        <span class="etiqueta python">Python · FastAPI · SQLAlchemy · /api/usuarios</span>
+      </header>
+
+      <div class="tarjeta">
+        <h3 id="titulo-form-usuario">➕ Nuevo usuario</h3>
+        <form id="form-usuario" class="formulario">
+          <input type="hidden" name="id" />
+          <label>Nombre<input name="nombre" required minlength="2" placeholder="Ej: Juan Lopez" /></label>
+          <label>Email<input name="email" type="email" required placeholder="juan@correo.com" /></label>
+          <label>Teléfono<input name="telefono" placeholder="0414-0000000" /></label>
+          <label>Dirección<input name="direccion" placeholder="Ciudad, estado" /></label>
+          <div class="acciones">
+            <button type="submit" class="btn primario">Guardar</button>
+            <button type="button" class="btn" id="cancelar-usuario">Limpiar</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="tarjeta">
+        <table class="tabla">
+          <thead><tr><th>ID</th><th>Nombre</th><th>Email</th><th>Teléfono</th><th>Dirección</th><th></th></tr></thead>
+          <tbody id="tabla-usuarios"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ============================== ORDENES ============================== -->
+    <section id="ordenes" class="seccion">
+      <header class="encabezado">
+        <div>
+          <h1>Órdenes</h1>
+          <p>Al crear una orden, <b>Java</b> le pregunta a Python si el usuario existe y a Node el precio y el stock, y luego descuenta el inventario.</p>
+        </div>
+        <span class="etiqueta java">Java · Spring Boot · JPA · /api/ordenes</span>
+      </header>
+
+      <div class="tarjeta">
+        <h3>🛒 Nueva orden</h3>
+        <div class="nueva-orden">
+          <div class="formulario">
+            <label class="ancho">Cliente<select id="orden-usuario"></select></label>
+            <label>Producto<select id="orden-producto"></select></label>
+            <label>Cantidad<input id="orden-cantidad" type="number" min="1" value="1" /></label>
+            <div class="acciones"><button class="btn" id="agregar-item">Agregar al carrito</button></div>
+          </div>
+          <div class="carrito">
+            <h4>Carrito</h4>
+            <ul id="carrito-items"><li class="vacio">Vacío</li></ul>
+            <div class="carrito-total">Total estimado: <strong id="carrito-total">$0.00</strong></div>
+            <button class="btn primario" id="crear-orden">Crear orden</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="tarjeta">
+        <table class="tabla">
+          <thead><tr><th>#</th><th>Fecha</th><th>Cliente</th><th>Productos</th><th>Total</th><th>Estado</th><th></th></tr></thead>
+          <tbody id="tabla-ordenes"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ============================== REPORTES ============================== -->
+    <section id="reportes" class="seccion">
+      <header class="encabezado">
+        <div>
+          <h1>Reportes guardados</h1>
+          <p>Cada reporte es una "foto" del negocio que el servicio de <b>Go</b> guarda en PostgreSQL usando GORM.</p>
+        </div>
+        <span class="etiqueta go">Go · Gin · GORM · /api/reportes</span>
+      </header>
+
+      <div class="barra-herramientas">
+        <button class="btn primario" id="generar-reporte">📸 Generar y guardar reporte</button>
+      </div>
+
+      <div class="tarjeta">
+        <table class="tabla">
+          <thead><tr><th>#</th><th>Fecha</th><th>Ventas</th><th>Órdenes</th><th>Usuarios</th><th>Productos</th><th>Producto top</th><th></th></tr></thead>
+          <tbody id="tabla-reportes"></tbody>
+        </table>
+      </div>
+
+      <div class="tarjeta oculto" id="detalle-reporte">
+        <h3>Detalle del reporte <span id="detalle-id"></span></h3>
+        <pre id="detalle-json"></pre>
+      </div>
+    </section>
+  </main>
+
+  <!-- Ventana de confirmacion propia (en vez de confirm() del navegador) -->
+  <div class="modal oculto" id="modal">
+    <div class="modal-caja">
+      <p id="modal-texto"></p>
+      <div class="acciones">
+        <button class="btn" id="modal-no">Cancelar</button>
+        <button class="btn peligro" id="modal-si">Sí, continuar</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toasts"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

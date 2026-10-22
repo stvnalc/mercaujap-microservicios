@@ -1,0 +1,181 @@
+# =====================================================================
+#  MercaUJAP - Sistema de pedidos con microservicios
+#  Levantar todo:  docker compose up --build
+#  Abrir:          http://localhost   (API Gateway Nginx)
+#
+#  Las variables ${VAR:-valor} se leen del archivo .env (si existe).
+#  Si no existe .env se usan los valores por defecto que estan despues
+#  de ":-", asi el sistema SIEMPRE levanta con un solo comando.
+# =====================================================================
+name: mercaujap
+
+services:
+  # ------------------------------------------------------------------
+  # BASES DE DATOS
+  # ------------------------------------------------------------------
+  postgres:
+    # Imagen oficial postgres:16-alpine + database/init.sql (ver database/Dockerfile)
+    build: ./database
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-admin}
+      POSTGRES_PASSWORD: ${DB_PASS:-supersecreta}
+      POSTGRES_DB: ${DB_NAME:-proyecto}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks: [backend]
+    healthcheck:
+      # -h 127.0.0.1 => solo responde cuando Postgres termino de inicializar
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ${DB_USER:-admin} -d ${DB_NAME:-proyecto}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  mongodb:
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      - mongodata:/data/db
+    networks: [backend]
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # ------------------------------------------------------------------
+  # MICROSERVICIOS (uno por lenguaje)
+  # ------------------------------------------------------------------
+
+  # Python + FastAPI + SQLAlchemy + PostgreSQL  ->  Usuarios / clientes
+  servicio-python:
+    build: ./servicio-python
+    restart: unless-stopped
+    environment:
+      PORT: 8000
+      DATABASE_URL: postgresql://${DB_USER:-admin}:${DB_PASS:-supersecreta}@postgres:5432/usuarios_db
+    ports: ["8001:8000"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [backend, frontend]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  # Node.js + Express + Mongoose + MongoDB  ->  Catalogo de productos
+  servicio-node:
+    build: ./servicio-node
+    restart: unless-stopped
+    environment:
+      PORT: 3000
+      MONGO_URL: ${MONGO_URL:-mongodb://mongodb:27017/productos_db}
+    ports: ["8002:3000"]
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks: [backend, frontend]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  # Java + Spring Boot + JPA + PostgreSQL  ->  Ordenes (pedidos)
+  # Se comunica con Python (valida usuario) y con Node (precio y stock)
+  servicio-java:
+    build: ./servicio-java
+    restart: unless-stopped
+    environment:
+      PORT: 8080
+      DATABASE_URL: jdbc:postgresql://postgres:5432/ordenes_db
+      DB_USER: ${DB_USER:-admin}
+      DB_PASS: ${DB_PASS:-supersecreta}
+      USUARIOS_SERVICE_URL: ${USUARIOS_SERVICE_URL:-http://servicio-python:8000}
+      PRODUCTOS_SERVICE_URL: ${PRODUCTOS_SERVICE_URL:-http://servicio-node:3000}
+    ports: ["8003:8080"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      servicio-python:
+        condition: service_started
+      servicio-node:
+        condition: service_started
+    networks: [backend, frontend]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
+
+  # Go + Gin + GORM + PostgreSQL  ->  Reportes y estadisticas
+  # Consulta a Python, Node y Java al mismo tiempo (goroutines)
+  servicio-go:
+    build: ./servicio-go
+    restart: unless-stopped
+    environment:
+      PORT: 8080
+      DATABASE_URL: postgres://${DB_USER:-admin}:${DB_PASS:-supersecreta}@postgres:5432/reportes_db?sslmode=disable
+      USUARIOS_SERVICE_URL: ${USUARIOS_SERVICE_URL:-http://servicio-python:8000}
+      PRODUCTOS_SERVICE_URL: ${PRODUCTOS_SERVICE_URL:-http://servicio-node:3000}
+      ORDENES_SERVICE_URL: ${ORDENES_SERVICE_URL:-http://servicio-java:8080}
+    ports: ["8004:8080"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [backend, frontend]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  # ------------------------------------------------------------------
+  # FRONTEND (HTML + CSS + JS servido por Nginx)
+  # ------------------------------------------------------------------
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    ports: ["3000:80"]
+    networks: [frontend]
+
+  # ------------------------------------------------------------------
+  # API GATEWAY (BONUS): punto de entrada unico en el puerto 80
+  #   /              -> frontend
+  #   /api/usuarios  -> servicio-python
+  #   /api/productos -> servicio-node
+  #   /api/ordenes   -> servicio-java
+  #   /api/reportes  -> servicio-go
+  # ------------------------------------------------------------------
+  gateway:
+    # Imagen oficial nginx:alpine + nginx/nginx.conf (ver nginx/Dockerfile)
+    build: ./nginx
+    restart: unless-stopped
+    ports: ["80:80"]
+    depends_on:
+      frontend:
+        condition: service_started
+      servicio-python:
+        condition: service_healthy
+      servicio-node:
+        condition: service_healthy
+      servicio-java:
+        condition: service_healthy
+      servicio-go:
+        condition: service_healthy
+    networks: [backend, frontend]
+
+volumes:
+  pgdata:
+  mongodata:
+
+networks:
+  backend:
+  frontend:

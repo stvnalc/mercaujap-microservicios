@@ -1,0 +1,24 @@
+# Variables de entorno (credenciales) - NUNCA subir
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Node
+node_modules/
+
+# Java
+target/
+*.class
+
+# Go
+servicio-go/servicio-go
+*.exe
+
+# Sistema / editores
+.DS_Store
+.idea/
+.vscode/
