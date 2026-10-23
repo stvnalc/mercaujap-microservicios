@@ -159,7 +159,7 @@ services:
     networks: [frontend]
 
   # ------------------------------------------------------------------
-  # API GATEWAY (BONUS): punto de entrada UNICO en el puerto 8080
+  # API GATEWAY: punto de entrada UNICO en el puerto 8080
   #   /                 -> frontend
   #   /api/auth         -> servicio-python (login)
   #   /api/usuarios     -> servicio-python
