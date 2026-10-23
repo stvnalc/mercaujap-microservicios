@@ -1,11 +1,16 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
+
+	"github.com/gin-gonic/gin"
 )
 
 // COMUNICACION ENTRE MICROSERVICIOS:
@@ -24,6 +29,24 @@ func obtenerJSON(url string, destino any) error {
 		return fmt.Errorf("%s respondio %d", url, resp.StatusCode)
 	}
 	return json.NewDecoder(resp.Body).Decode(destino)
+}
+
+// publicarEvento avisa a servicio-node para que reenvie el cambio por WebSocket.
+// Corre en una goroutine: la respuesta al usuario no espera por esto.
+func publicarEvento(cfg Config, c *gin.Context, accion string, id uint, mensaje string) {
+	var autor map[string]any
+	if uid, err := strconv.Atoi(c.GetHeader("X-Usuario-Id")); err == nil {
+		autor = map[string]any{"id": uid, "nombre": usuarioDe(c)}
+	}
+	cuerpo, _ := json.Marshal(map[string]any{"tema": "reportes", "accion": accion, "id": id, "mensaje": mensaje, "usuario": autor})
+	go func() {
+		resp, err := clienteHTTP.Post(cfg.EventosURL, "application/json", bytes.NewReader(cuerpo))
+		if err != nil {
+			log.Printf("[go] No se pudo publicar el evento en tiempo real: %v", err)
+			return
+		}
+		resp.Body.Close()
+	}()
 }
 
 // DatosNegocio agrupa lo que se obtuvo de cada servicio.

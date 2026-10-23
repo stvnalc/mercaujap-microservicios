@@ -1,7 +1,15 @@
 # =====================================================================
 #  MercaUJAP - Sistema de pedidos con microservicios
 #  Levantar todo:  docker compose up --build
-#  Abrir:          http://localhost   (API Gateway Nginx)
+#  Abrir:          http://localhost:8080   (API Gateway Nginx)
+#
+#  PUERTO UNICO: solo el gateway publica un puerto (8080). Los microservicios,
+#  el frontend y las bases de datos NO son accesibles desde fuera: el gateway
+#  recibe todo y lo reparte por la red interna de Docker a cada servicio:
+#      8080 -> frontend:80 | servicio-python:8000 | servicio-node:3000
+#              servicio-java:8080 | servicio-go:8080
+#  Para depurar un servicio directamente:
+#      docker compose -f docker-compose.yml -f docker-compose.debug.yml up --build
 #
 #  Las variables ${VAR:-valor} se leen del archivo .env (si existe).
 #  Si no existe .env se usan los valores por defecto que estan despues
@@ -58,7 +66,7 @@ services:
       DATABASE_URL: postgresql://${DB_USER:-admin}:${DB_PASS:-supersecreta}@postgres:5432/usuarios_db
       JWT_SECRET: ${JWT_SECRET:-mercaujap-clave-de-desarrollo-cambiar-en-produccion}
       ORDENES_SERVICE_URL: ${ORDENES_SERVICE_URL:-http://servicio-java:8080}
-    ports: ["8001:8000"]
+      EVENTOS_URL: ${EVENTOS_URL:-http://servicio-node:3000/interno/eventos}
     depends_on:
       postgres:
         condition: service_healthy
@@ -71,13 +79,14 @@ services:
       start_period: 10s
 
   # Node.js + Express + Mongoose + MongoDB  ->  Catalogo de productos
+  # Tambien es el canal de TIEMPO REAL (WebSocket): reenvia a los paneles abiertos
+  # los cambios que le avisan Python y Java (POST /interno/eventos)
   servicio-node:
     build: ./servicio-node
     restart: unless-stopped
     environment:
       PORT: 3000
       MONGO_URL: ${MONGO_URL:-mongodb://mongodb:27017/productos_db}
-    ports: ["8002:3000"]
     depends_on:
       mongodb:
         condition: service_healthy
@@ -101,8 +110,8 @@ services:
       DB_PASS: ${DB_PASS:-supersecreta}
       USUARIOS_SERVICE_URL: ${USUARIOS_SERVICE_URL:-http://servicio-python:8000}
       PRODUCTOS_SERVICE_URL: ${PRODUCTOS_SERVICE_URL:-http://servicio-node:3000}
+      EVENTOS_URL: ${EVENTOS_URL:-http://servicio-node:3000/interno/eventos}
       DEMO_DATA: ${DEMO_DATA:-true}
-    ports: ["8003:8080"]
     depends_on:
       postgres:
         condition: service_healthy
@@ -129,7 +138,7 @@ services:
       USUARIOS_SERVICE_URL: ${USUARIOS_SERVICE_URL:-http://servicio-python:8000}
       PRODUCTOS_SERVICE_URL: ${PRODUCTOS_SERVICE_URL:-http://servicio-node:3000}
       ORDENES_SERVICE_URL: ${ORDENES_SERVICE_URL:-http://servicio-java:8080}
-    ports: ["8004:8080"]
+      EVENTOS_URL: ${EVENTOS_URL:-http://servicio-node:3000/interno/eventos}
     depends_on:
       postgres:
         condition: service_healthy
@@ -147,24 +156,25 @@ services:
   frontend:
     build: ./frontend
     restart: unless-stopped
-    ports: ["3000:80"]
     networks: [frontend]
 
   # ------------------------------------------------------------------
-  # API GATEWAY (BONUS): punto de entrada unico en el puerto 80
-  #   /              -> frontend
-  #   /api/auth      -> servicio-python (login)
-  #   /api/usuarios  -> servicio-python
-  #   /api/productos -> servicio-node
-  #   /api/ordenes   -> servicio-java
-  #   /api/reportes  -> servicio-go
+  # API GATEWAY (BONUS): punto de entrada UNICO en el puerto 8080
+  #   /                 -> frontend
+  #   /api/auth         -> servicio-python (login)
+  #   /api/usuarios     -> servicio-python
+  #   /api/productos    -> servicio-node
+  #   /api/tiempo-real  -> servicio-node (WebSocket)
+  #   /api/ordenes      -> servicio-java
+  #   /api/reportes     -> servicio-go
   #   Valida el token de sesion de cada peticion (auth_request -> servicio-python)
+  #   Si el 8080 esta ocupado en tu PC: PUERTO=9090 docker compose up --build
   # ------------------------------------------------------------------
   gateway:
     # Imagen oficial nginx:alpine + nginx/nginx.conf (ver nginx/Dockerfile)
     build: ./nginx
     restart: unless-stopped
-    ports: ["80:80"]
+    ports: ["${PUERTO:-8080}:8080"]
     depends_on:
       frontend:
         condition: service_started

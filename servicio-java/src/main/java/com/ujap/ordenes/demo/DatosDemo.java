@@ -3,8 +3,11 @@ package com.ujap.ordenes.demo;
 import com.ujap.ordenes.client.ServiciosClient;
 import com.ujap.ordenes.client.ServiciosClient.ProductoDto;
 import com.ujap.ordenes.client.ServiciosClient.UsuarioDto;
+import com.ujap.ordenes.dto.CambiarEstadoRequest;
 import com.ujap.ordenes.dto.CrearOrdenRequest;
+import com.ujap.ordenes.model.EmpresaEnvio;
 import com.ujap.ordenes.model.EstadoOrden;
+import com.ujap.ordenes.model.MetodoEntrega;
 import com.ujap.ordenes.model.MetodoPago;
 import com.ujap.ordenes.model.Orden;
 import com.ujap.ordenes.service.OrdenService;
@@ -29,6 +32,10 @@ import java.util.*;
 public class DatosDemo implements ApplicationRunner {
 
     private static final String[] VENDEDORES = {"Luis Herrera", "Andrea Salazar"};
+    // Repetidos = mas probables (los bancos y empresas mas usados aparecen mas)
+    private static final String[] BANCOS = {"0134", "0134", "0134", "0102", "0102", "0105", "0105", "0108", "0191", "0172", "0174", "0163"};
+    private static final EmpresaEnvio[] EMPRESAS = {EmpresaEnvio.MRW, EmpresaEnvio.MRW, EmpresaEnvio.MRW, EmpresaEnvio.ZOOM,
+            EmpresaEnvio.ZOOM, EmpresaEnvio.TEALCA, EmpresaEnvio.DOMESA, EmpresaEnvio.LIBERTY_EXPRESS};
 
     private final OrdenService ordenes;
     private final ServiciosClient servicios;
@@ -101,11 +108,18 @@ public class DatosDemo implements ApplicationRunner {
 
             UsuarioDto cliente = clientes.get(rnd.nextInt(clientes.size()));
             String vendedor = VENDEDORES[rnd.nextInt(VENDEDORES.length)];
-            String notas = rnd.nextInt(5) == 0 ? "Cliente retira en tienda" : null;
+            int tipo = rnd.nextInt(100);
+            MetodoEntrega entrega = tipo < 20 ? MetodoEntrega.RETIRO_TIENDA : tipo < 45 ? MetodoEntrega.DELIVERY : MetodoEntrega.ENVIO_NACIONAL;
+            EmpresaEnvio empresa = entrega == MetodoEntrega.ENVIO_NACIONAL ? EMPRESAS[rnd.nextInt(EMPRESAS.length)] : null;
+            String notas = switch (rnd.nextInt(8)) {
+                case 0 -> entrega == MetodoEntrega.DELIVERY ? "Entregar en horario de la tarde" : null;
+                case 1 -> "Cliente frecuente";
+                default -> null;
+            };
             try {
                 Orden o = ordenes.crear(new CrearOrdenRequest(cliente.id(), items,
-                        metodos[rnd.nextInt(metodos.length)], null, notas), vendedor, fecha);
-                avanzar(o, diasAtras, rnd, vendedor, cuando);
+                        metodos[rnd.nextInt(metodos.length)], entrega, empresa, null, notas), vendedor, fecha);
+                avanzar(o, diasAtras, rnd, vendedor, cuando, cliente.nombre());
                 creados++;
             } catch (RuntimeException e) {
                 System.out.println("[java] Datos demo: pedido omitido (" + e.getMessage() + ")");
@@ -115,7 +129,7 @@ public class DatosDemo implements ApplicationRunner {
     }
 
     /** Lleva el pedido por su ciclo de vida segun su antiguedad, con fechas coherentes. */
-    private void avanzar(Orden o, int diasAtras, Random rnd, String vendedor, ZonedDateTime inicio) {
+    private void avanzar(Orden o, int diasAtras, Random rnd, String vendedor, ZonedDateTime inicio, String cliente) {
         List<EstadoOrden> ruta = new ArrayList<>();
         int dado = rnd.nextInt(100);
         if (dado < 7) {
@@ -128,21 +142,46 @@ public class DatosDemo implements ApplicationRunner {
         } else if (diasAtras >= 1) {
             if (dado < 70) ruta.add(EstadoOrden.PAGADA);
         }
+        // Retiro en tienda: del pago pasa directo a entregado (no se envia)
+        if (o.getMetodoEntrega() == MetodoEntrega.RETIRO_TIENDA) ruta.remove(EstadoOrden.ENVIADA);
 
         ZonedDateTime cuando = inicio;
         ZonedDateTime limite = ZonedDateTime.now(zona).minusMinutes(5);
         for (EstadoOrden e : ruta) {
             cuando = cuando.plus(Duration.ofHours(e == EstadoOrden.PAGADA ? 1 : 20 + rnd.nextInt(10)));
             if (cuando.isAfter(limite)) cuando = limite;
-            String nota = switch (e) {
-                case PAGADA -> "Pago verificado";
-                case ENVIADA -> "Despachado con MRW, guía " + (100000 + rnd.nextInt(899999));
-                case ENTREGADA -> "Recibido por el cliente";
-                case CANCELADA -> "Cliente desistió de la compra";
-                default -> null;
-            };
-            ordenes.cambiarEstado(o.getId(), e, nota, vendedor, cuando.toInstant());
+            ordenes.cambiarEstado(o.getId(), datosDelPaso(o, e, rnd, cliente), vendedor, cuando.toInstant());
         }
+    }
+
+    /** Los mismos datos que se llenan en el formulario de cada paso. */
+    private static CambiarEstadoRequest datosDelPaso(Orden o, EstadoOrden e, Random rnd, String cliente) {
+        return switch (e) {
+            case PAGADA -> {
+                MetodoPago m = o.getMetodoPago();
+                String referencia = switch (m) {
+                    case PAGO_MOVIL -> digitos(rnd, 8);
+                    case TRANSFERENCIA -> digitos(rnd, 10);
+                    case TARJETA -> digitos(rnd, 6);
+                    case ZELLE -> Long.toString(Math.abs(rnd.nextLong()), 36).toUpperCase().substring(0, 10);
+                    case EFECTIVO -> null;
+                };
+                String banco = m.requiereBanco() ? BANCOS[rnd.nextInt(BANCOS.length)] : null;
+                yield new CambiarEstadoRequest(e, null, m, banco, referencia, null, null, null);
+            }
+            case ENVIADA -> new CambiarEstadoRequest(e, null, null, null, null, o.getEmpresaEnvio(),
+                    o.getEmpresaEnvio() == null ? null : digitos(rnd, 10), null);
+            case ENTREGADA -> new CambiarEstadoRequest(e, null, null, null, null, null, null,
+                    rnd.nextInt(4) == 0 ? "Familiar del cliente" : cliente);
+            case CANCELADA -> new CambiarEstadoRequest(e, rnd.nextBoolean() ? "El cliente desistió de la compra" : "No se recibió el pago a tiempo");
+            case PENDIENTE -> new CambiarEstadoRequest(e, null);
+        };
+    }
+
+    private static String digitos(Random rnd, int n) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < n; i++) sb.append(rnd.nextInt(10));
+        return sb.toString();
     }
 
     private static void dormir(long ms) {

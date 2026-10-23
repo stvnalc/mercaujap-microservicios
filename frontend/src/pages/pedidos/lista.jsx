@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Download, Plus, ReceiptText, Search } from 'lucide-react';
+import { IconoEntrega } from '@/components/badges';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group';
@@ -15,10 +16,11 @@ import { dinero, ESTADOS, fecha, fechaHora, METODOS_PAGO } from '@/lib/format';
 
 function exportarCSV(ordenes) {
   const filas = [
-    ['Pedido', 'Fecha', 'Cliente', 'Documento', 'Estado', 'Método de pago', 'Unidades', 'Subtotal', 'IVA', 'Total'],
+    ['Pedido', 'Fecha', 'Cliente', 'Documento', 'Estado', 'Método de pago', 'Banco', 'Referencia', 'Entrega', 'Empresa de envío', 'N.º de guía', 'Unidades', 'Subtotal', 'IVA', 'Total'],
     ...ordenes.map((o) => [
       o.codigo, fechaHora(o.fecha), o.usuarioNombre, o.usuarioDocumento ?? '', ESTADOS[o.estado]?.etiqueta ?? o.estado,
-      METODOS_PAGO[o.metodoPago] ?? '', o.unidades, o.subtotal, o.impuesto, o.total,
+      METODOS_PAGO[o.metodoPago] ?? '', o.pagoBancoNombre ?? '', o.pagoReferencia ?? '', o.metodoEntregaNombre ?? '', o.empresaEnvioNombre ?? '', o.numeroGuia ?? '',
+      o.unidades, o.subtotal, o.impuesto, o.total,
     ]),
   ];
   const csv = '﻿' + filas.map((f) => f.map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`).join(';')).join('\n');
@@ -49,7 +51,7 @@ export function ListaPedidos() {
     return (ordenes ?? []).filter(
       (o) =>
         (estado === 'TODOS' || o.estado === estado) &&
-        (!q || o.codigo?.toLowerCase().includes(q) || o.usuarioNombre?.toLowerCase().includes(q) || o.usuarioDocumento?.toLowerCase().includes(q))
+        (!q || [o.codigo, o.usuarioNombre, o.usuarioDocumento, o.numeroGuia, o.pagoReferencia].some((v) => v?.toLowerCase().includes(q)))
     );
   }, [ordenes, estado, busqueda]);
 
@@ -87,7 +89,20 @@ export function ListaPedidos() {
         </div>
       ),
     },
-    { id: 'pago', titulo: 'Pago', className: 'hidden md:table-cell', celda: (o) => <span className="text-sm text-muted-foreground">{METODOS_PAGO[o.metodoPago] ?? '—'}</span> },
+    {
+      id: 'pago',
+      titulo: 'Pago y entrega',
+      className: 'hidden md:table-cell',
+      celda: (o) => (
+        <div className="text-sm leading-tight">
+          <p>{METODOS_PAGO[o.metodoPago] ?? '—'}</p>
+          <p className="flex items-center gap-1 text-xs text-muted-foreground">
+            <IconoEntrega metodo={o.metodoEntrega} className="size-3" />
+            {o.empresaEnvioNombre ?? o.metodoEntregaNombre}
+          </p>
+        </div>
+      ),
+    },
     { id: 'estado', titulo: 'Estado', valor: (o) => o.estado, celda: (o) => <EstadoBadge estado={o.estado} /> },
     { id: 'total', titulo: 'Total', alinear: 'right', valor: (o) => Number(o.total), celda: (o) => <span className="font-medium">{dinero(o.total)}</span> },
   ];
@@ -124,7 +139,7 @@ export function ListaPedidos() {
               <InputGroupAddon>
                 <Search />
               </InputGroupAddon>
-              <InputGroupInput placeholder="Buscar por código, cliente o cédula" value={busqueda} onChange={(e) => setBusqueda(e.target.value)} />
+              <InputGroupInput placeholder="Código, cliente, cédula, guía o referencia" value={busqueda} onChange={(e) => setBusqueda(e.target.value)} />
             </InputGroup>
             <div className="flex items-center gap-2 text-sm text-muted-foreground sm:ml-auto">
               <span>Desde</span>
@@ -134,6 +149,7 @@ export function ListaPedidos() {
             </div>
           </div>
           <TablaDatos
+            tema="ordenes"
             columnas={columnas}
             filas={filtradas}
             cargando={cargando}

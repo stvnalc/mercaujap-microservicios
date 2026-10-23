@@ -21,6 +21,7 @@ func TestCalcularResumen(t *testing.T) {
 		},
 		Ordenes: []Orden{
 			{ID: 1, UsuarioID: 1, UsuarioNombre: "Ana", Estado: "ENTREGADA", Fecha: dia(2), MetodoPago: "PAGO_MOVIL",
+				MetodoEntregaNombre: "Envío nacional", EmpresaEnvioNombre: "MRW",
 				Subtotal: 120, Impuesto: 19.2, Total: 139.2,
 				Items: []OrdenItem{{ProductoID: "p1", ProductoNombre: "Mouse", Cantidad: 2, Subtotal: 20}, {ProductoID: "p2", ProductoNombre: "Monitor", Cantidad: 1, Subtotal: 100}}},
 			{ID: 2, UsuarioID: 1, UsuarioNombre: "Ana", Estado: "CANCELADA", Fecha: dia(3), Subtotal: 100, Impuesto: 16, Total: 116,
@@ -52,6 +53,9 @@ func TestCalcularResumen(t *testing.T) {
 	}
 	if len(r.StockBajo) != 1 || r.StockBajo[0].ID != "p1" {
 		t.Errorf("stock bajo: esperaba solo el mouse, obtuve %+v", r.StockBajo)
+	}
+	if len(r.VentasPorEntrega) != 1 || r.VentasPorEntrega[0].Metodo != "Envío nacional · MRW" || r.VentasPorEntrega[0].Ordenes != 1 {
+		t.Errorf("ventas por entrega: esperaba solo el envío por MRW, obtuve %+v", r.VentasPorEntrega)
 	}
 	if r.OrdenesPorDespachar != 1 {
 		t.Errorf("por despachar: esperaba 1, obtuve %d", r.OrdenesPorDespachar)

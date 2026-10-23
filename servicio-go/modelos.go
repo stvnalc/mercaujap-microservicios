@@ -89,17 +89,20 @@ type Producto struct {
 
 // Orden viene de servicio-java (GET /ordenes)
 type Orden struct {
-	ID            int         `json:"id"`
-	Codigo        string      `json:"codigo"`
-	UsuarioID     int         `json:"usuarioId"`
-	UsuarioNombre string      `json:"usuarioNombre"`
-	MetodoPago    string      `json:"metodoPago"`
-	Subtotal      float64     `json:"subtotal"`
-	Impuesto      float64     `json:"impuesto"`
-	Total         float64     `json:"total"`
-	Estado        string      `json:"estado"`
-	Fecha         time.Time   `json:"fecha"`
-	Items         []OrdenItem `json:"items"`
+	ID            int    `json:"id"`
+	Codigo        string `json:"codigo"`
+	UsuarioID     int    `json:"usuarioId"`
+	UsuarioNombre string `json:"usuarioNombre"`
+	MetodoPago    string `json:"metodoPago"`
+	// Nombres legibles que calcula servicio-java ("Envío nacional", "MRW")
+	MetodoEntregaNombre string      `json:"metodoEntregaNombre"`
+	EmpresaEnvioNombre  string      `json:"empresaEnvioNombre"`
+	Subtotal            float64     `json:"subtotal"`
+	Impuesto            float64     `json:"impuesto"`
+	Total               float64     `json:"total"`
+	Estado              string      `json:"estado"`
+	Fecha               time.Time   `json:"fecha"`
+	Items               []OrdenItem `json:"items"`
 }
 
 type OrdenItem struct {

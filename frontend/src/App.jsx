@@ -2,6 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { Spinner } from '@/components/ui/spinner';
 import { Layout } from '@/components/layout';
 import { useAuth } from '@/lib/auth';
+import { ProveedorTiempoReal } from '@/lib/tiempo-real';
 import { Login } from '@/pages/login';
 import { Dashboard } from '@/pages/dashboard';
 import { ListaPedidos } from '@/pages/pedidos/lista';
@@ -28,23 +29,25 @@ export default function App() {
   if (!usuario) return <Login />;
 
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route element={<Layout />}>
-          <Route index element={<Dashboard />} />
-          <Route path="pedidos" element={<ListaPedidos />} />
-          <Route path="pedidos/nuevo" element={<NuevoPedido />} />
-          <Route path="pedidos/:id" element={<DetallePedido />} />
-          <Route path="clientes" element={<Clientes />} />
-          <Route path="productos" element={<Productos />} />
-          <Route path="inventario" element={<Inventario />} />
-          <Route path="reportes" element={<Reportes />} />
-          <Route path="reportes/:id" element={<DetalleReporte />} />
-          <Route path="equipo" element={esAdmin ? <Equipo /> : <Navigate to="/" replace />} />
-          <Route path="perfil" element={<Perfil />} />
-          <Route path="*" element={<NoEncontrada />} />
-        </Route>
-      </Routes>
-    </BrowserRouter>
+    <ProveedorTiempoReal>
+      <BrowserRouter>
+        <Routes>
+          <Route element={<Layout />}>
+            <Route index element={<Dashboard />} />
+            <Route path="pedidos" element={<ListaPedidos />} />
+            <Route path="pedidos/nuevo" element={<NuevoPedido />} />
+            <Route path="pedidos/:id" element={<DetallePedido />} />
+            <Route path="clientes" element={<Clientes />} />
+            <Route path="productos" element={<Productos />} />
+            <Route path="inventario" element={<Inventario />} />
+            <Route path="reportes" element={<Reportes />} />
+            <Route path="reportes/:id" element={<DetalleReporte />} />
+            <Route path="equipo" element={esAdmin ? <Equipo /> : <Navigate to="/" replace />} />
+            <Route path="perfil" element={<Perfil />} />
+            <Route path="*" element={<NoEncontrada />} />
+          </Route>
+        </Routes>
+      </BrowserRouter>
+    </ProveedorTiempoReal>
   );
 }

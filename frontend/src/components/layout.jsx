@@ -16,9 +16,11 @@ import { AppSidebar } from '@/components/app-sidebar';
 import { BusquedaGlobal } from '@/components/busqueda-global';
 import { EstadoSistema } from '@/components/estado-sistema';
 import { Notificaciones } from '@/components/notificaciones';
+import { EnVivo } from '@/components/en-vivo';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { api } from '@/lib/api';
 import { useTema } from '@/lib/theme';
+import { useEventos } from '@/lib/tiempo-real';
 
 const TITULOS = {
   '': 'Panel',
@@ -67,7 +69,8 @@ export function Layout() {
   const { pathname } = useLocation();
   const [alertas, setAlertas] = useState({});
 
-  // Contadores del menu y notificaciones (se refrescan cada minuto y al cambiar de pagina)
+  // Contadores del menu y notificaciones: se refrescan al instante cuando alguien cambia
+  // pedidos o productos (tiempo real) y, por si acaso, cada 2 minutos
   const cargarAlertas = useCallback(async () => {
     try {
       const [pendientes, porEnviar, bajos, agotados] = await Promise.all([
@@ -84,13 +87,15 @@ export function Layout() {
 
   useEffect(() => {
     cargarAlertas();
-    const t = setInterval(cargarAlertas, 60000);
+    const t = setInterval(cargarAlertas, 120000);
     window.addEventListener('datos-cambiaron', cargarAlertas);
     return () => {
       clearInterval(t);
       window.removeEventListener('datos-cambiaron', cargarAlertas);
     };
   }, [cargarAlertas]);
+
+  useEventos(['ordenes', 'productos'], cargarAlertas);
 
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -115,6 +120,7 @@ export function Layout() {
             <div className="hidden md:block">
               <BusquedaGlobal />
             </div>
+            <EnVivo />
             <EstadoSistema />
             <Notificaciones alertas={alertas} />
             <Button variant="ghost" size="icon" onClick={() => setTema(oscuro ? 'light' : 'dark')} aria-label="Cambiar tema">

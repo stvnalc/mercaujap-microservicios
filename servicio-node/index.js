@@ -13,14 +13,18 @@
  *   PATCH  /productos/:id/stock          -> entrada/salida de stock { cantidad, motivo, referencia } (lo usa servicio-java)
  *   GET    /productos/:id/movimientos    -> historial de stock (kardex) de un producto
  *   GET    /movimientos                  -> ultimos movimientos de todo el inventario
+ *   POST   /interno/eventos              -> otros servicios publican un evento de tiempo real (solo red interna)
+ *   WS     /tiempo-real                  -> canal WebSocket del panel (ver tiempo-real.js)
  */
 require('dotenv').config();
+const http = require('http');
 const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
 const Producto = require('./producto.model');
 const Movimiento = require('./movimiento.model');
 const PRODUCTOS_INICIALES = require('./datos-iniciales');
+const { iniciarTiempoReal, publicar, autorDe, conectados } = require('./tiempo-real');
 
 const PORT = process.env.PORT || 3000;
 const MONGO_URL = process.env.MONGO_URL || 'mongodb://localhost:27017/productos_db';
@@ -83,6 +87,7 @@ app.get('/health', (req, res) => {
     servicio: 'productos',
     lenguaje: 'Node.js',
     bd: 'MongoDB',
+    conexionesTiempoReal: conectados(),
   });
 });
 
@@ -148,6 +153,7 @@ app.post('/productos', envolver(async (req, res) => {
       cantidad: stockInicial, stockAnterior: 0, stockNuevo: stockInicial, motivo: 'Inventario inicial', usuario: usuarioDe(req),
     });
   }
+  publicar({ tema: 'productos', accion: 'creado', id: producto.id, mensaje: `Agregó el producto ${producto.nombre}`, usuario: autorDe(req) });
   res.status(201).json(producto);
 }));
 
@@ -157,6 +163,9 @@ app.put('/productos/:id', validarId, envolver(async (req, res) => {
     runValidators: true,
   });
   if (!producto) return res.status(404).json({ error: 'Producto no encontrado' });
+  const soloActivo = Object.keys(req.body).length === 1 && req.body.activo !== undefined;
+  const mensaje = soloActivo ? `${producto.activo ? 'Activó' : 'Desactivó'} el producto ${producto.nombre}` : `Editó el producto ${producto.nombre}`;
+  publicar({ tema: 'productos', accion: 'actualizado', id: producto.id, mensaje, usuario: autorDe(req) });
   res.json(producto);
 }));
 
@@ -164,6 +173,7 @@ app.delete('/productos/:id', validarId, envolver(async (req, res) => {
   const producto = await Producto.findByIdAndDelete(req.params.id);
   if (!producto) return res.status(404).json({ error: 'Producto no encontrado' });
   await Movimiento.deleteMany({ producto: producto._id });
+  publicar({ tema: 'productos', accion: 'eliminado', id: producto.id, mensaje: `Eliminó el producto ${producto.nombre}`, usuario: autorDe(req) });
   res.status(204).send();
 }));
 
@@ -197,6 +207,12 @@ app.patch('/productos/:id/stock', validarId, envolver(async (req, res) => {
     producto: producto._id, productoNombre: producto.nombre, sku: producto.sku, tipo, cantidad,
     stockAnterior: producto.stock - cantidad, stockNuevo: producto.stock, motivo, referencia, usuario: usuarioDe(req), fecha,
   });
+  // Los movimientos que hace servicio-java (ventas, cancelaciones) no llevan mensaje: Java avisa del pedido
+  const autor = autorDe(req);
+  publicar({
+    tema: 'productos', accion: 'stock', id: producto.id, usuario: autor,
+    mensaje: autor ? `Ajustó el stock de ${producto.nombre} (${producto.stock - cantidad} → ${producto.stock})` : null,
+  });
   res.json(producto);
 }));
 
@@ -216,6 +232,17 @@ app.get('/movimientos', envolver(async (req, res) => {
   }
   res.json(await Movimiento.find(filtro).sort({ fecha: -1 }).limit(limite));
 }));
+
+// Otros microservicios (Python, Java) avisan aqui de sus cambios para reenviarlos por WebSocket.
+// Las peticiones que llegan por el gateway traen X-Usuario-Id: esas se rechazan (solo uso interno).
+app.post('/interno/eventos', (req, res) => {
+  if (req.get('X-Usuario-Id')) return res.status(403).json({ error: 'Ruta solo para uso interno' });
+  const { tema, accion, id, mensaje, usuario } = req.body || {};
+  if (!publicar({ tema, accion: String(accion || 'cambio'), id: id ?? null, mensaje: mensaje ? String(mensaje).slice(0, 200) : null, usuario: usuario ?? null })) {
+    return res.status(400).json({ error: 'Tema de evento inválido' });
+  }
+  res.status(202).json({ ok: true, enviadoA: conectados() });
+});
 
 app.use((req, res) => res.status(404).json({ error: 'Ruta no encontrada' }));
 
@@ -279,7 +306,10 @@ async function iniciar() {
   }
 
   await cargarDatosIniciales();
-  app.listen(PORT, () => console.log(`[node] Servicio de productos escuchando en el puerto ${PORT}`));
+  // Un solo servidor HTTP atiende la API REST (Express) y el WebSocket del panel
+  const server = http.createServer(app);
+  iniciarTiempoReal(server);
+  server.listen(PORT, () => console.log(`[node] Servicio de productos escuchando en el puerto ${PORT}`));
 }
 
 iniciar();

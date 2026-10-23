@@ -8,29 +8,36 @@ import {
   CircleDollarSign,
   Clock,
   CreditCard,
+  Hash,
+  Landmark,
   Mail,
   MapPin,
   PackageCheck,
   Printer,
   ReceiptText,
+  Store,
   Trash2,
   Truck,
   UserRound,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Field, FieldLabel } from '@/components/ui/field';
+import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
+import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
-import { EstadoBadge } from '@/components/badges';
+import { EstadoBadge, IconoEntrega } from '@/components/badges';
+import { PanelEnLinea } from '@/components/panel-en-linea';
 import { Vacio } from '@/components/vacio';
 import { LogoMarca } from '@/components/logo';
 import { useConfirmar } from '@/components/confirmar';
 import { notificarCambio } from '@/components/layout';
-import { useApi } from '@/hooks/use-api';
+import { useApi, useCatalogos } from '@/hooks/use-api';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { ACCION_ESTADO, dinero, ESTADOS, fecha, fechaHora, METODOS_PAGO } from '@/lib/format';
@@ -42,22 +49,27 @@ const PASOS = [
   { estado: 'ENVIADA', titulo: 'Enviado', icono: Truck },
   { estado: 'ENTREGADA', titulo: 'Entregado', icono: PackageCheck },
 ];
+// Retiro en tienda: no hay envio, del pago pasa directo a entregado
+const PASOS_RETIRO = [PASOS[0], PASOS[1], { estado: 'ENTREGADA', titulo: 'Retirado', icono: Store }];
 
-const NOTA_ESTADO = {
-  PAGADA: { etiqueta: 'Referencia del pago', ejemplo: 'Ej: Pago móvil ref. 004512' },
-  ENVIADA: { etiqueta: 'Empresa de envío y número de guía', ejemplo: 'Ej: MRW guía 7745120' },
-  ENTREGADA: { etiqueta: 'Recibido por', ejemplo: 'Ej: Recibido por el cliente' },
-  CANCELADA: { etiqueta: 'Motivo de la cancelación', ejemplo: 'Ej: El cliente desistió de la compra' },
+const pasosDe = (orden) => (orden.metodoEntrega === 'RETIRO_TIENDA' ? PASOS_RETIRO : PASOS);
+
+const TITULO_CAMBIO = {
+  PAGADA: { titulo: 'Registrar pago', descripcion: 'Indica cómo pagó el cliente. Solo el número de referencia, sin texto adicional.', icono: CreditCard },
+  ENVIADA: { titulo: 'Despachar pedido', descripcion: 'Registra la empresa de envío y el número de guía para hacer seguimiento.', icono: Truck },
+  ENTREGADA: { titulo: 'Confirmar entrega', descripcion: 'El pedido quedará cerrado como entregado.', icono: PackageCheck },
+  CANCELADA: { titulo: 'Cancelar pedido', descripcion: 'Las unidades de este pedido volverán al inventario. Esta acción no se puede deshacer.', icono: Ban },
 };
 
 const ICONO_HISTORIAL = { PENDIENTE: ReceiptText, PAGADA: CircleDollarSign, ENVIADA: Truck, ENTREGADA: CheckCircle2, CANCELADA: Ban };
 
 function Progreso({ orden }) {
   const cancelada = orden.estado === 'CANCELADA';
-  const actual = PASOS.findIndex((p) => p.estado === orden.estado);
+  const pasos = pasosDe(orden);
+  const actual = pasos.findIndex((p) => p.estado === orden.estado);
   return (
-    <ol className="grid grid-cols-4">
-      {PASOS.map((p, i) => {
+    <ol className={cn('grid', pasos.length === 3 ? 'grid-cols-3' : 'grid-cols-4')}>
+      {pasos.map((p, i) => {
         const hecho = !cancelada && i <= actual;
         return (
           <li key={p.estado} className="flex flex-col items-center gap-2 text-center">
@@ -72,7 +84,7 @@ function Progreso({ orden }) {
               >
                 <p.icono className="size-4" />
               </span>
-              <span className={cn('h-0.5 flex-1', i === PASOS.length - 1 ? 'opacity-0' : !cancelada && i < actual ? 'bg-primary' : 'bg-border')} />
+              <span className={cn('h-0.5 flex-1', i === pasos.length - 1 ? 'opacity-0' : !cancelada && i < actual ? 'bg-primary' : 'bg-border')} />
             </div>
             <span className={cn('text-xs font-medium', hecho ? 'text-foreground' : 'text-muted-foreground')}>{p.titulo}</span>
           </li>
@@ -110,8 +122,17 @@ function Comprobante({ orden }) {
         </div>
         <div>
           <p className="text-xs font-semibold uppercase">Envío y pago</p>
-          <p>{orden.direccionEnvio ?? 'Retiro en tienda'}</p>
-          <p>Método: {METODOS_PAGO[orden.metodoPago]}</p>
+          <p>
+            {orden.metodoEntregaNombre}
+            {orden.empresaEnvioNombre && ` · ${orden.empresaEnvioNombre}`}
+            {orden.numeroGuia && ` · Guía ${orden.numeroGuia}`}
+          </p>
+          {orden.direccionEnvio && <p>{orden.direccionEnvio}</p>}
+          <p>
+            Pago: {METODOS_PAGO[orden.metodoPago]}
+            {orden.pagoBancoNombre && ` · ${orden.pagoBancoNombre}`}
+            {orden.pagoReferencia && ` · Ref. ${orden.pagoReferencia}`}
+          </p>
           <p>Estado: {ESTADOS[orden.estado]?.etiqueta}</p>
         </div>
       </div>
@@ -160,15 +181,208 @@ function Comprobante({ orden }) {
   );
 }
 
+// Formulario del cambio de estado, integrado en la pagina (debajo del encabezado del pedido).
+// Cada paso pide sus propios datos en campos separados, asi la base de datos queda ordenada.
+function CambioEstado({ orden, estado, onCerrar, onHecho }) {
+  const catalogos = useCatalogos();
+  const [d, setD] = useState({
+    metodoPago: orden.metodoPago ?? 'EFECTIVO',
+    banco: '',
+    referencia: '',
+    empresaEnvio: orden.empresaEnvio ?? '',
+    numeroGuia: '',
+    recibidoPor: orden.metodoEntrega === 'RETIRO_TIENDA' ? '' : orden.usuarioNombre ?? '',
+    nota: '',
+  });
+  const [error, setError] = useState(null);
+  const [guardando, setGuardando] = useState(false);
+  const poner = (k) => (v) => setD((x) => ({ ...x, [k]: v?.target ? v.target.value : v }));
+
+  const metodo = catalogos?.metodosPago.find((m) => m.valor === d.metodoPago);
+  const envioNacional = orden.metodoEntrega === 'ENVIO_NACIONAL';
+  const info = TITULO_CAMBIO[estado];
+
+  const enviar = async (e) => {
+    e.preventDefault();
+    setGuardando(true);
+    setError(null);
+    const cuerpo = { estado, nota: d.nota };
+    if (estado === 'PAGADA') Object.assign(cuerpo, { metodoPago: d.metodoPago, banco: metodo?.pideBanco ? d.banco : null, referencia: metodo?.pideReferencia ? d.referencia : null });
+    if (estado === 'ENVIADA' && envioNacional) Object.assign(cuerpo, { empresaEnvio: d.empresaEnvio || null, numeroGuia: d.numeroGuia });
+    if (estado === 'ENTREGADA') cuerpo.recibidoPor = d.recibidoPor;
+    try {
+      await api(`/ordenes/${orden.id}/estado`, { method: 'PATCH', body: cuerpo });
+      toast.success(`${orden.codigo}: ${ESTADOS[estado].etiqueta.toLowerCase()}`, {
+        description: estado === 'CANCELADA' ? 'El stock de los productos fue devuelto al inventario.' : undefined,
+      });
+      onHecho();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setGuardando(false);
+    }
+  };
+
+  return (
+    <PanelEnLinea
+      icono={info.icono}
+      titulo={`${info.titulo} · ${orden.codigo}`}
+      descripcion={info.descripcion}
+      onCerrar={onCerrar}
+      className={estado === 'CANCELADA' ? 'border-destructive/40 ring-destructive/5' : undefined}
+    >
+      <form onSubmit={enviar} className="grid gap-5">
+        {error && (
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+        <FieldGroup className="grid gap-4 md:grid-cols-3">
+          {estado === 'PAGADA' && (
+            <>
+              <Field>
+                <FieldLabel>Método de pago</FieldLabel>
+                <Select value={d.metodoPago} onValueChange={poner('metodoPago')}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(catalogos?.metodosPago ?? Object.entries(METODOS_PAGO).map(([valor, nombre]) => ({ valor, nombre }))).map((m) => (
+                      <SelectItem key={m.valor} value={m.valor}>
+                        {m.nombre}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {d.metodoPago !== orden.metodoPago && <FieldDescription>El cliente había indicado {METODOS_PAGO[orden.metodoPago]}.</FieldDescription>}
+              </Field>
+              {metodo?.pideBanco && (
+                <Field>
+                  <FieldLabel>Banco de origen</FieldLabel>
+                  <Select value={d.banco} onValueChange={poner('banco')} required>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Selecciona el banco" />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-72">
+                      {catalogos.bancos.map((b) => (
+                        <SelectItem key={b.codigo} value={b.codigo}>
+                          <span className="w-9 text-xs text-muted-foreground tabular">{b.codigo}</span> {b.nombre}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+              )}
+              {metodo?.pideReferencia && (
+                <Field>
+                  <FieldLabel htmlFor="ref-pago">{d.metodoPago === 'TARJETA' ? 'Número de aprobación' : d.metodoPago === 'ZELLE' ? 'Código de confirmación' : 'Número de referencia'}</FieldLabel>
+                  <Input
+                    id="ref-pago"
+                    value={d.referencia}
+                    onChange={(e) => poner('referencia')(metodo.referenciaSoloNumeros ? e.target.value.replace(/\D/g, '') : e.target.value.replace(/[^A-Za-z0-9]/g, '').toUpperCase())}
+                    inputMode={metodo.referenciaSoloNumeros ? 'numeric' : 'text'}
+                    placeholder={metodo.referenciaSoloNumeros ? 'Ej: 004512' : 'Ej: AB12CD34'}
+                    maxLength={20}
+                    required
+                    className="font-mono tracking-wider"
+                  />
+                  <FieldDescription>{metodo.referenciaSoloNumeros ? 'Solo números.' : 'Letras y números.'}</FieldDescription>
+                </Field>
+              )}
+              {metodo && !metodo.pideReferencia && <p className="self-center text-sm text-muted-foreground md:col-span-2">Pago en efectivo: no requiere referencia.</p>}
+            </>
+          )}
+
+          {estado === 'ENVIADA' &&
+            (envioNacional ? (
+              <>
+                <Field className="md:col-span-2">
+                  <FieldLabel>Empresa de envío</FieldLabel>
+                  <ToggleGroup type="single" variant="outline" value={d.empresaEnvio} onValueChange={(v) => v && poner('empresaEnvio')(v)} className="w-full flex-wrap">
+                    {(catalogos?.empresasEnvio ?? []).map((e) => (
+                      <ToggleGroupItem key={e.valor} value={e.valor} className="flex-1 px-3 data-[state=on]:border-primary data-[state=on]:bg-primary/10 data-[state=on]:text-primary">
+                        {e.nombre}
+                      </ToggleGroupItem>
+                    ))}
+                  </ToggleGroup>
+                  {orden.empresaEnvio && d.empresaEnvio !== orden.empresaEnvio && <FieldDescription>El cliente había elegido {orden.empresaEnvioNombre}.</FieldDescription>}
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="guia">Número de guía</FieldLabel>
+                  <Input
+                    id="guia"
+                    value={d.numeroGuia}
+                    onChange={(e) => poner('numeroGuia')(e.target.value.replace(/[^A-Za-z0-9-]/g, '').toUpperCase())}
+                    placeholder="Ej: 7745120"
+                    maxLength={30}
+                    required
+                    className="font-mono tracking-wider"
+                  />
+                </Field>
+              </>
+            ) : (
+              <p className="flex items-center gap-2 text-sm text-muted-foreground md:col-span-3">
+                <IconoEntrega metodo="DELIVERY" className="size-4" /> Entrega por delivery a: {orden.direccionEnvio}
+              </p>
+            ))}
+
+          {estado === 'ENTREGADA' && (
+            <Field className="md:col-span-2">
+              <FieldLabel htmlFor="recibe">{orden.metodoEntrega === 'RETIRO_TIENDA' ? 'Retirado por' : 'Recibido por'}</FieldLabel>
+              <Input id="recibe" value={d.recibidoPor} onChange={poner('recibidoPor')} placeholder="Nombre de quien recibe" maxLength={100} />
+            </Field>
+          )}
+
+          <Field className={estado === 'CANCELADA' ? 'md:col-span-3' : estado === 'ENTREGADA' ? '' : 'md:col-span-3'}>
+            <FieldLabel htmlFor="nota-estado">
+              {estado === 'CANCELADA' ? 'Motivo de la cancelación' : 'Comentario'} {estado !== 'CANCELADA' && <span className="font-normal text-muted-foreground">(opcional)</span>}
+            </FieldLabel>
+            <Textarea
+              id="nota-estado"
+              rows={estado === 'CANCELADA' ? 2 : 1}
+              value={d.nota}
+              onChange={poner('nota')}
+              placeholder={estado === 'CANCELADA' ? 'Ej: El cliente desistió de la compra' : 'Observación interna'}
+              maxLength={300}
+              required={estado === 'CANCELADA'}
+              className="min-h-9"
+            />
+          </Field>
+        </FieldGroup>
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <Button type="button" variant="outline" onClick={onCerrar}>
+            Volver
+          </Button>
+          <Button type="submit" variant={estado === 'CANCELADA' ? 'destructive' : 'default'} disabled={guardando || (estado === 'PAGADA' && metodo?.pideBanco && !d.banco)}>
+            {guardando && <Spinner />} {estado === 'CANCELADA' ? 'Cancelar pedido' : 'Confirmar'}
+          </Button>
+        </div>
+      </form>
+    </PanelEnLinea>
+  );
+}
+
+// Fila "icono + etiqueta + valor" de las tarjetas laterales
+function Dato({ icono: Icono, etiqueta, children }) {
+  return (
+    <div className="flex gap-2.5">
+      <Icono className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+      <div className="min-w-0">
+        <p className="text-xs text-muted-foreground">{etiqueta}</p>
+        <div className="break-words">{children}</div>
+      </div>
+    </div>
+  );
+}
+
 export function DetallePedido() {
   const { id } = useParams();
   const navegar = useNavigate();
   const { esAdmin } = useAuth();
   const confirmar = useConfirmar();
   const { datos: orden, cargando, error, recargar } = useApi(`/ordenes/${id}`);
-  const [cambio, setCambio] = useState(null); // estado al que se quiere pasar
-  const [nota, setNota] = useState('');
-  const [guardando, setGuardando] = useState(false);
+  useCatalogos(); // se piden desde ya para que el formulario de pago abra completo
+  const [cambio, setCambio] = useState(null); // estado al que se quiere pasar (abre el formulario)
 
   if (error) {
     return (
@@ -192,27 +406,11 @@ export function DetallePedido() {
     );
   }
 
-  const abrirCambio = (estado) => {
-    setNota('');
-    setCambio(estado);
-  };
-
-  const aplicarCambio = async (e) => {
-    e.preventDefault();
-    setGuardando(true);
-    try {
-      await api(`/ordenes/${orden.id}/estado`, { method: 'PATCH', body: { estado: cambio, nota } });
-      toast.success(`${orden.codigo}: ${ESTADOS[cambio].etiqueta.toLowerCase()}`, {
-        description: cambio === 'CANCELADA' ? 'El stock de los productos fue devuelto al inventario.' : undefined,
-      });
-      setCambio(null);
-      notificarCambio();
-      recargar({ silencioso: true });
-    } catch (err) {
-      toast.error('No se pudo actualizar el pedido', { description: err.message });
-    } finally {
-      setGuardando(false);
-    }
+  const abrirCambio = (estado) => setCambio((c) => (c === estado ? null : estado));
+  const cambioHecho = () => {
+    setCambio(null);
+    notificarCambio();
+    recargar({ silencioso: true });
   };
 
   const eliminar = async () => {
@@ -262,7 +460,7 @@ export function DetallePedido() {
               <Printer /> Imprimir
             </Button>
             {siguientes.includes('CANCELADA') && (
-              <Button variant="destructive" onClick={() => abrirCambio('CANCELADA')}>
+              <Button variant={cambio === 'CANCELADA' ? 'outline' : 'destructive'} onClick={() => abrirCambio('CANCELADA')}>
                 <Ban /> Cancelar
               </Button>
             )}
@@ -272,12 +470,15 @@ export function DetallePedido() {
               </Button>
             )}
             {avanzar.map((s) => (
-              <Button key={s} onClick={() => abrirCambio(s)}>
-                {s === 'PAGADA' ? <CreditCard /> : s === 'ENVIADA' ? <Truck /> : <PackageCheck />} {ACCION_ESTADO[s]}
+              <Button key={s} variant={cambio === s ? 'outline' : 'default'} onClick={() => abrirCambio(s)}>
+                {s === 'PAGADA' ? <CreditCard /> : s === 'ENVIADA' ? <Truck /> : <PackageCheck />}{' '}
+                {s === 'ENTREGADA' && orden.metodoEntrega === 'RETIRO_TIENDA' ? 'Confirmar retiro' : ACCION_ESTADO[s]}
               </Button>
             ))}
           </div>
         </div>
+
+        {cambio && siguientes.includes(cambio) && <CambioEstado key={cambio} orden={orden} estado={cambio} onCerrar={() => setCambio(null)} onHecho={cambioHecho} />}
 
         <Card>
           <CardContent>
@@ -298,7 +499,8 @@ export function DetallePedido() {
         </Card>
 
         <div className="grid items-start gap-4 lg:grid-cols-3">
-          <Card className="lg:col-span-2">
+          <div className="grid gap-4 lg:col-span-2">
+          <Card>
             <CardHeader>
               <CardTitle>Productos</CardTitle>
               <CardDescription>
@@ -358,6 +560,34 @@ export function DetallePedido() {
               )}
             </CardContent>
           </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Historial</CardTitle>
+              <CardDescription>Cada cambio de estado del pedido</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ol className="relative ml-3 grid gap-5 border-l pl-6">
+                {[...orden.historial].reverse().map((h) => {
+                  const Icono = ICONO_HISTORIAL[h.estado] ?? Clock;
+                  return (
+                    <li key={h.id} className="relative">
+                      <span className="absolute top-0 -left-[37px] flex size-6 items-center justify-center rounded-full border bg-background">
+                        <Icono className="size-3.5 text-muted-foreground" />
+                      </span>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <EstadoBadge estado={h.estado} />
+                        <span className="text-xs text-muted-foreground">{fechaHora(h.fecha)}</span>
+                      </div>
+                      {h.detalle && <p className="mt-1 text-sm font-medium">{h.detalle}</p>}
+                      {h.nota && <p className={cn('text-sm', h.detalle ? 'text-muted-foreground' : 'mt-1')}>{h.nota}</p>}
+                      {h.usuario && <p className="text-xs text-muted-foreground">por {h.usuario}</p>}
+                    </li>
+                  );
+                })}
+              </ol>
+            </CardContent>
+          </Card>
+          </div>
 
           <div className="grid gap-4">
             <Card>
@@ -372,76 +602,69 @@ export function DetallePedido() {
                 <p className="flex items-center gap-2 text-muted-foreground">
                   <Mail className="size-4" /> {orden.usuarioEmail}
                 </p>
-                <p className="flex items-start gap-2 text-muted-foreground">
-                  <MapPin className="mt-0.5 size-4 shrink-0" /> {orden.direccionEnvio ?? 'Retiro en tienda'}
-                </p>
-                <p className="flex items-center gap-2 text-muted-foreground">
-                  <CreditCard className="size-4" /> {METODOS_PAGO[orden.metodoPago] ?? '—'}
-                </p>
               </CardContent>
             </Card>
 
             <Card>
               <CardHeader>
-                <CardTitle>Historial</CardTitle>
-                <CardDescription>Cada cambio de estado del pedido</CardDescription>
+                <CardTitle>Pago</CardTitle>
+                <CardDescription>{orden.pagoReferencia || orden.estado !== 'PENDIENTE' ? 'Datos del pago confirmado' : 'Pendiente por confirmar'}</CardDescription>
               </CardHeader>
-              <CardContent>
-                <ol className="relative grid gap-5 border-l pl-6">
-                  {[...orden.historial].reverse().map((h) => {
-                    const Icono = ICONO_HISTORIAL[h.estado] ?? Clock;
-                    return (
-                      <li key={h.id} className="relative">
-                        <span className="absolute top-0 -left-[37px] flex size-6 items-center justify-center rounded-full border bg-background">
-                          <Icono className="size-3.5 text-muted-foreground" />
-                        </span>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <EstadoBadge estado={h.estado} />
-                          <span className="text-xs text-muted-foreground">{fechaHora(h.fecha)}</span>
-                        </div>
-                        {h.nota && <p className="mt-1 text-sm">{h.nota}</p>}
-                        {h.usuario && <p className="text-xs text-muted-foreground">por {h.usuario}</p>}
-                      </li>
-                    );
-                  })}
-                </ol>
+              <CardContent className="grid gap-3 text-sm">
+                <Dato icono={CreditCard} etiqueta="Método">
+                  {METODOS_PAGO[orden.metodoPago] ?? '—'}
+                </Dato>
+                {orden.pagoBancoNombre && (
+                  <Dato icono={Landmark} etiqueta="Banco de origen">
+                    {orden.pagoBancoNombre} <span className="text-xs text-muted-foreground">({orden.pagoBanco})</span>
+                  </Dato>
+                )}
+                {orden.pagoReferencia && (
+                  <Dato icono={Hash} etiqueta={orden.metodoPago === 'TARJETA' ? 'Aprobación' : 'Referencia'}>
+                    <span className="font-mono tracking-wider">{orden.pagoReferencia}</span>
+                  </Dato>
+                )}
               </CardContent>
             </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Entrega</CardTitle>
+                <CardDescription>{orden.metodoEntregaNombre}</CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-3 text-sm">
+                {orden.empresaEnvioNombre && (
+                  <Dato icono={Truck} etiqueta="Empresa de envío">
+                    {orden.empresaEnvioNombre}
+                  </Dato>
+                )}
+                {orden.numeroGuia && (
+                  <Dato icono={Hash} etiqueta="Número de guía">
+                    <span className="font-mono tracking-wider">{orden.numeroGuia}</span>
+                  </Dato>
+                )}
+                {orden.direccionEnvio ? (
+                  <Dato icono={MapPin} etiqueta="Dirección">
+                    {orden.direccionEnvio}
+                  </Dato>
+                ) : (
+                  <Dato icono={Store} etiqueta="Lugar de retiro">
+                    Tienda MercaUJAP · Bárbula
+                  </Dato>
+                )}
+                {orden.recibidoPor && (
+                  <Dato icono={UserRound} etiqueta={orden.metodoEntrega === 'RETIRO_TIENDA' ? 'Retirado por' : 'Recibido por'}>
+                    {orden.recibidoPor}
+                  </Dato>
+                )}
+              </CardContent>
+            </Card>
+
           </div>
         </div>
         <p className="text-xs text-muted-foreground">Última actualización: {fecha(orden.actualizadoEn)}</p>
       </div>
 
-      <Dialog open={!!cambio} onOpenChange={(a) => !a && setCambio(null)}>
-        <DialogContent className="sm:max-w-md">
-          <form onSubmit={aplicarCambio} className="grid gap-4">
-            <DialogHeader>
-              <DialogTitle>{cambio && (cambio === 'CANCELADA' ? `¿Cancelar ${orden.codigo}?` : ACCION_ESTADO[cambio])}</DialogTitle>
-              <DialogDescription>
-                {cambio === 'CANCELADA'
-                  ? 'Las unidades de este pedido volverán al inventario. Esta acción no se puede deshacer.'
-                  : `El pedido pasará a "${cambio && ESTADOS[cambio].etiqueta}".`}
-              </DialogDescription>
-            </DialogHeader>
-            {cambio && (
-              <Field>
-                <FieldLabel htmlFor="nota-estado">
-                  {NOTA_ESTADO[cambio].etiqueta} {cambio !== 'CANCELADA' && <span className="font-normal text-muted-foreground">(opcional)</span>}
-                </FieldLabel>
-                <Textarea id="nota-estado" rows={2} value={nota} onChange={(e) => setNota(e.target.value)} placeholder={NOTA_ESTADO[cambio].ejemplo} maxLength={300} required={cambio === 'CANCELADA'} />
-              </Field>
-            )}
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setCambio(null)}>
-                Volver
-              </Button>
-              <Button type="submit" variant={cambio === 'CANCELADA' ? 'destructive' : 'default'} disabled={guardando}>
-                {guardando && <Spinner />} {cambio === 'CANCELADA' ? 'Cancelar pedido' : 'Confirmar'}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
     </>
   );
 }

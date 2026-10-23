@@ -16,11 +16,10 @@ import {
   Search,
   Trash2,
   TriangleAlert,
+  X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -35,8 +34,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Separator } from '@/components/ui/separator';
+import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { Badge } from '@/components/ui/badge';
@@ -45,6 +43,7 @@ import { StatCard } from '@/components/stat-card';
 import { TablaDatos } from '@/components/tabla-datos';
 import { StockBadge } from '@/components/badges';
 import { Vacio } from '@/components/vacio';
+import { EncabezadoExpansion, PanelEnLinea, useCambioExterno } from '@/components/panel-en-linea';
 import { useConfirmar } from '@/components/confirmar';
 import { notificarCambio } from '@/components/layout';
 import { useApi } from '@/hooks/use-api';
@@ -55,21 +54,17 @@ import { cn } from '@/lib/utils';
 
 const VACIO = { sku: '', nombre: '', marca: '', categoria: '', precio: '', costo: '', stock: '', stockMinimo: '5', descripcion: '', activo: true };
 
-function ProductoDialog({ abierto, onCambio, producto, categorias, onGuardado }) {
-  const [form, setForm] = useState(VACIO);
+const CAMPOS_FORM = ['sku', 'nombre', 'marca', 'categoria', 'precio', 'costo', 'stockMinimo', 'descripcion', 'activo'];
+const aFormulario = (p) =>
+  p ? { ...VACIO, ...p, precio: String(p.precio), costo: String(p.costo ?? ''), stockMinimo: String(p.stockMinimo ?? 5) } : VACIO;
+
+// Formulario de crear / editar producto. Se muestra dentro de la pagina (no en una ventana encima).
+function ProductoForm({ producto, categorias, onCancelar, onGuardado }) {
+  const [form, setForm] = useState(() => aFormulario(producto));
   const [error, setError] = useState(null);
   const [guardando, setGuardando] = useState(false);
   const editando = !!producto?._id;
-
-  useEffect(() => {
-    if (!abierto) return;
-    setError(null);
-    setForm(
-      producto
-        ? { ...VACIO, ...producto, precio: String(producto.precio), costo: String(producto.costo ?? ''), stockMinimo: String(producto.stockMinimo ?? 5) }
-        : VACIO
-    );
-  }, [abierto, producto]);
+  const [cambioExterno, aceptarCambio] = useCambioExterno(producto, CAMPOS_FORM);
 
   const campo = (n) => ({ id: 'prod-' + n, value: form[n] ?? '', onChange: (e) => setForm((f) => ({ ...f, [n]: e.target.value })) });
   const margen = Number(form.precio) > 0 && form.costo !== '' ? (Number(form.precio) - Number(form.costo)) / Number(form.precio) : null;
@@ -95,7 +90,6 @@ function ProductoDialog({ abierto, onCambio, producto, categorias, onGuardado })
         ? await api(`/productos/${producto._id}`, { method: 'PUT', body: cuerpo })
         : await api('/productos', { method: 'POST', body: cuerpo });
       toast.success(editando ? 'Producto actualizado' : 'Producto creado', { description: `${p.sku} · ${p.nombre}` });
-      onCambio(false);
       onGuardado(p);
     } catch (err) {
       setError(err.message);
@@ -105,82 +99,94 @@ function ProductoDialog({ abierto, onCambio, producto, categorias, onGuardado })
   };
 
   return (
-    <Dialog open={abierto} onOpenChange={onCambio}>
-      <DialogContent className="max-h-[92svh] overflow-y-auto sm:max-w-xl">
-        <form onSubmit={guardar} className="grid gap-5">
-          <DialogHeader>
-            <DialogTitle>{editando ? 'Editar producto' : 'Nuevo producto'}</DialogTitle>
-            <DialogDescription>{editando ? 'El stock se modifica desde "Ajustar stock".' : 'Agrega un artículo al catálogo de la tienda.'}</DialogDescription>
-          </DialogHeader>
-          {error && (
-            <Alert variant="destructive">
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
-          <FieldGroup className="grid gap-4 sm:grid-cols-6">
-            <Field className="sm:col-span-4">
-              <FieldLabel htmlFor="prod-nombre">Nombre</FieldLabel>
-              <Input {...campo('nombre')} required minLength={2} placeholder="Ej: Laptop HP 15 Core i5" />
-            </Field>
-            <Field className="sm:col-span-2">
-              <FieldLabel htmlFor="prod-sku">SKU</FieldLabel>
-              <Input {...campo('sku')} placeholder="Automático" className="uppercase" />
-            </Field>
-            <Field className="sm:col-span-3">
-              <FieldLabel htmlFor="prod-marca">Marca</FieldLabel>
-              <Input {...campo('marca')} placeholder="Ej: HP" />
-            </Field>
-            <Field className="sm:col-span-3">
-              <FieldLabel htmlFor="prod-categoria">Categoría</FieldLabel>
-              <Input {...campo('categoria')} list="lista-categorias" placeholder="Ej: Computación" />
-              <datalist id="lista-categorias">
-                {categorias.map((c) => (
-                  <option key={c} value={c} />
-                ))}
-              </datalist>
-            </Field>
-            <Field className="sm:col-span-2">
-              <FieldLabel htmlFor="prod-precio">Precio de venta ($)</FieldLabel>
-              <Input {...campo('precio')} type="number" min="0.01" step="0.01" required />
-            </Field>
-            <Field className="sm:col-span-2">
-              <FieldLabel htmlFor="prod-costo">Costo ($)</FieldLabel>
-              <Input {...campo('costo')} type="number" min="0" step="0.01" />
-              {margen != null && <FieldDescription className={margen < 0 ? 'text-destructive' : ''}>Margen: {porcentaje(margen)}</FieldDescription>}
-            </Field>
-            <Field className="sm:col-span-2">
-              <FieldLabel htmlFor="prod-stockMinimo">Stock mínimo</FieldLabel>
-              <Input {...campo('stockMinimo')} type="number" min="0" step="1" />
-            </Field>
-            {!editando && (
-              <Field className="sm:col-span-2">
-                <FieldLabel htmlFor="prod-stock">Stock inicial</FieldLabel>
-                <Input {...campo('stock')} type="number" min="0" step="1" placeholder="0" />
-              </Field>
-            )}
-            <Field className={editando ? 'sm:col-span-6' : 'sm:col-span-4'}>
-              <FieldLabel htmlFor="prod-descripcion">Descripción</FieldLabel>
-              <Textarea {...campo('descripcion')} rows={2} maxLength={500} placeholder="Características principales" />
-            </Field>
-            <Field orientation="horizontal" className="rounded-lg border p-3 sm:col-span-6">
-              <div className="flex-1">
-                <FieldLabel htmlFor="prod-activo">Disponible para la venta</FieldLabel>
-                <FieldDescription>Los productos inactivos no aparecen al registrar pedidos.</FieldDescription>
-              </div>
-              <Switch id="prod-activo" checked={form.activo} onCheckedChange={(v) => setForm((f) => ({ ...f, activo: v }))} />
-            </Field>
-          </FieldGroup>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onCambio(false)}>
-              Cancelar
+    <form onSubmit={guardar} className="grid gap-5">
+      {cambioExterno && (
+        <Alert>
+          <TriangleAlert />
+          <AlertTitle>Otra persona modificó este producto</AlertTitle>
+          <AlertDescription>Si guardas, tus datos reemplazarán los suyos. Puedes cargar la versión más reciente.</AlertDescription>
+          <AlertAction>
+            <Button
+              type="button"
+              size="xs"
+              variant="outline"
+              onClick={() => {
+                setForm(aFormulario(producto));
+                aceptarCambio();
+              }}
+            >
+              Cargar cambios
             </Button>
-            <Button type="submit" disabled={guardando}>
-              {guardando && <Spinner />} {editando ? 'Guardar cambios' : 'Crear producto'}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+          </AlertAction>
+        </Alert>
+      )}
+      {error && (
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+      <FieldGroup className="grid gap-4 sm:grid-cols-6 lg:grid-cols-12">
+        <Field className="sm:col-span-4 lg:col-span-5">
+          <FieldLabel htmlFor="prod-nombre">Nombre</FieldLabel>
+          <Input {...campo('nombre')} required minLength={2} placeholder="Ej: Laptop HP 15 Core i5" />
+        </Field>
+        <Field className="sm:col-span-2 lg:col-span-2">
+          <FieldLabel htmlFor="prod-sku">SKU</FieldLabel>
+          <Input {...campo('sku')} placeholder="Automático" className="uppercase" />
+        </Field>
+        <Field className="sm:col-span-3 lg:col-span-2">
+          <FieldLabel htmlFor="prod-marca">Marca</FieldLabel>
+          <Input {...campo('marca')} placeholder="Ej: HP" />
+        </Field>
+        <Field className="sm:col-span-3 lg:col-span-3">
+          <FieldLabel htmlFor="prod-categoria">Categoría</FieldLabel>
+          <Input {...campo('categoria')} list="lista-categorias" placeholder="Ej: Computación" />
+          <datalist id="lista-categorias">
+            {categorias.map((c) => (
+              <option key={c} value={c} />
+            ))}
+          </datalist>
+        </Field>
+        <Field className="sm:col-span-2 lg:col-span-2">
+          <FieldLabel htmlFor="prod-precio">Precio de venta ($)</FieldLabel>
+          <Input {...campo('precio')} type="number" min="0.01" step="0.01" required />
+        </Field>
+        <Field className="sm:col-span-2 lg:col-span-2">
+          <FieldLabel htmlFor="prod-costo">Costo ($)</FieldLabel>
+          <Input {...campo('costo')} type="number" min="0" step="0.01" />
+          {margen != null && <FieldDescription className={margen < 0 ? 'text-destructive' : ''}>Margen: {porcentaje(margen)}</FieldDescription>}
+        </Field>
+        <Field className="sm:col-span-2 lg:col-span-2">
+          <FieldLabel htmlFor="prod-stockMinimo">Stock mínimo</FieldLabel>
+          <Input {...campo('stockMinimo')} type="number" min="0" step="1" />
+        </Field>
+        {!editando && (
+          <Field className="sm:col-span-2 lg:col-span-2">
+            <FieldLabel htmlFor="prod-stock">Stock inicial</FieldLabel>
+            <Input {...campo('stock')} type="number" min="0" step="1" placeholder="0" />
+          </Field>
+        )}
+        <Field className={editando ? 'sm:col-span-6 lg:col-span-6' : 'sm:col-span-4 lg:col-span-4'}>
+          <FieldLabel htmlFor="prod-descripcion">Descripción</FieldLabel>
+          <Textarea {...campo('descripcion')} rows={1} maxLength={500} placeholder="Características principales" className="min-h-9" />
+        </Field>
+        <Field orientation="horizontal" className="rounded-lg border bg-background p-3 sm:col-span-6 lg:col-span-12">
+          <div className="flex-1">
+            <FieldLabel htmlFor="prod-activo">Disponible para la venta</FieldLabel>
+            <FieldDescription>Los productos inactivos no aparecen al registrar pedidos.</FieldDescription>
+          </div>
+          <Switch id="prod-activo" checked={form.activo} onCheckedChange={(v) => setForm((f) => ({ ...f, activo: v }))} />
+        </Field>
+      </FieldGroup>
+      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+        <Button type="button" variant="outline" onClick={onCancelar}>
+          Cancelar
+        </Button>
+        <Button type="submit" disabled={guardando}>
+          {guardando && <Spinner />} {editando ? 'Guardar cambios' : 'Crear producto'}
+        </Button>
+      </div>
+    </form>
   );
 }
 
@@ -256,25 +262,30 @@ function AjusteStock({ producto, onAjustado }) {
   );
 }
 
-function DetalleProducto({ producto, onCambio, onActualizado, onEditar }) {
-  const { datos: movimientos, recargar } = useApi(producto ? `/productos/${producto._id}/movimientos?limit=30` : null);
-  if (!producto) return null;
+// Detalle que se abre DENTRO de la tabla, debajo de la fila del producto
+function DetalleProducto({ producto, onCerrar, onActualizado, onEditar }) {
+  const { datos: movimientos, recargar } = useApi(`/productos/${producto._id}/movimientos?limit=30`);
   const pct = Math.min(100, (producto.stock / Math.max(producto.stockMinimo * 3, 1)) * 100);
   return (
-    <Sheet open={!!producto} onOpenChange={(a) => !a && onCambio()}>
-      <SheetContent className="w-full gap-0 overflow-y-auto sm:max-w-lg">
-        <SheetHeader className="border-b">
-          <div className="flex items-center gap-2">
-            <Badge variant="outline">{producto.sku}</Badge>
-            <StockBadge estado={producto.estadoStock} />
-            {!producto.activo && <Badge variant="secondary">Inactivo</Badge>}
-          </div>
-          <SheetTitle className="text-lg">{producto.nombre}</SheetTitle>
-          <SheetDescription>
-            {producto.marca} · {producto.categoria}
-          </SheetDescription>
-        </SheetHeader>
-        <div className="grid gap-6 p-4">
+    <div className="grid gap-x-8 gap-y-4 lg:grid-cols-2">
+      <div className="lg:col-span-2">
+        <EncabezadoExpansion
+          titulo={
+            <span className="flex flex-wrap items-center gap-2">
+              {producto.nombre}
+              <Badge variant="outline">{producto.sku}</Badge>
+              {producto.activo ? <StockBadge estado={producto.estadoStock} /> : <Badge variant="secondary">Inactivo</Badge>}
+            </span>
+          }
+          descripcion={`${producto.marca || 'Sin marca'} · ${producto.categoria}`}
+          onCerrar={onCerrar}
+        >
+          <Button variant="outline" size="sm" onClick={() => onEditar(producto)}>
+            <Pencil /> Editar
+          </Button>
+        </EncabezadoExpansion>
+      </div>
+        <div className="grid content-start gap-5">
           {producto.descripcion && <p className="text-sm text-muted-foreground">{producto.descripcion}</p>}
           <div className="grid grid-cols-3 gap-3">
             {[
@@ -282,7 +293,7 @@ function DetalleProducto({ producto, onCambio, onActualizado, onEditar }) {
               ['Costo', dinero(producto.costo)],
               ['Margen', porcentaje(producto.margen)],
             ].map(([t, v]) => (
-              <div key={t} className="rounded-lg bg-muted/50 p-3">
+              <div key={t} className="rounded-lg border bg-background p-3">
                 <p className="text-xs text-muted-foreground">{t}</p>
                 <p className="font-semibold tabular">{v}</p>
               </div>
@@ -322,20 +333,18 @@ function DetalleProducto({ producto, onCambio, onActualizado, onEditar }) {
             />
           </div>
 
-          <Separator />
-          <div className="grid gap-3">
+        </div>
+          <div className="grid content-start gap-3">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-medium">Historial de movimientos</h3>
-              <Button variant="ghost" size="sm" onClick={() => onEditar(producto)}>
-                <Pencil /> Editar
-              </Button>
+              <span className="text-xs text-muted-foreground">Últimos 30</span>
             </div>
             {!movimientos ? (
               <Skeleton className="h-32" />
             ) : movimientos.length === 0 ? (
               <p className="text-sm text-muted-foreground">Sin movimientos registrados.</p>
             ) : (
-              <ul className="grid gap-1">
+              <ul className="grid max-h-[22rem] gap-1 overflow-y-auto rounded-lg border bg-background p-1">
                 {movimientos.map((m) => (
                   <li key={m._id} className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-muted/50">
                     <span
@@ -364,9 +373,7 @@ function DetalleProducto({ producto, onCambio, onActualizado, onEditar }) {
               </ul>
             )}
           </div>
-        </div>
-      </SheetContent>
-    </Sheet>
+    </div>
   );
 }
 
@@ -378,10 +385,14 @@ export function Productos() {
   const [busqueda, setBusqueda] = useState('');
   const [categoria, setCategoria] = useState('todas');
   const [estado, setEstado] = useState('todos');
-  const [dialogo, setDialogo] = useState({ abierto: false, producto: null });
+  const [creando, setCreando] = useState(false);
 
+  // ?id=... abre el detalle del producto dentro de la tabla; &editar=1 abre su formulario ahi mismo
   const lista = productos ?? [];
   const seleccionado = lista.find((p) => p._id === params.get('id')) ?? null;
+  const editando = !!seleccionado && params.get('editar') === '1';
+  const abrir = (p, editar = false) => setParams(editar ? { id: p._id, editar: '1' } : { id: p._id }, { replace: true });
+  const cerrar = () => setParams({}, { replace: true });
   const categorias = useMemo(() => [...new Set(lista.map((p) => p.categoria))].sort((a, b) => a.localeCompare(b, 'es')), [lista]);
 
   const filtrados = useMemo(() => {
@@ -408,7 +419,6 @@ export function Productos() {
     recargar({ silencioso: true });
     notificarCambio();
   };
-  const abrir = (p) => setParams({ id: p._id });
 
   const alternarActivo = async (p) => {
     try {
@@ -431,7 +441,7 @@ export function Productos() {
     try {
       await api(`/productos/${p._id}`, { method: 'DELETE' });
       toast.success('Producto eliminado');
-      if (seleccionado?._id === p._id) setParams({});
+      if (seleccionado?._id === p._id) cerrar();
       actualizar();
     } catch (e) {
       toast.error(e.message);
@@ -476,7 +486,7 @@ export function Productos() {
               <DropdownMenuItem onSelect={() => abrir(p)}>
                 <Boxes /> Ver stock e historial
               </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => setDialogo({ abierto: true, producto: p })}>
+              <DropdownMenuItem onSelect={() => abrir(p, true)}>
                 <Pencil /> Editar
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => alternarActivo(p)}>
@@ -500,8 +510,8 @@ export function Productos() {
   return (
     <>
       <EncabezadoPagina titulo="Productos" descripcion="Catálogo, precios y existencias de la tienda.">
-        <Button onClick={() => setDialogo({ abierto: true, producto: null })}>
-          <Plus /> Nuevo producto
+        <Button onClick={() => setCreando((v) => !v)} variant={creando ? 'outline' : 'default'}>
+          {creando ? <X /> : <Plus />} {creando ? 'Cerrar formulario' : 'Nuevo producto'}
         </Button>
       </EncabezadoPagina>
 
@@ -511,6 +521,20 @@ export function Productos() {
         <StatCard titulo="Stock bajo" icono={TriangleAlert} cargando={cargando && !productos} valor={num(resumen.bajos)} detalle="En o bajo su mínimo" />
         <StatCard titulo="Agotados" icono={PackageX} cargando={cargando && !productos} valor={num(resumen.agotados)} detalle="Sin unidades disponibles" />
       </div>
+
+      {creando && (
+        <PanelEnLinea icono={Package} titulo="Nuevo producto" descripcion="Agrega un artículo al catálogo de la tienda." onCerrar={() => setCreando(false)}>
+          <ProductoForm
+            categorias={categorias}
+            onCancelar={() => setCreando(false)}
+            onGuardado={(p) => {
+              setCreando(false);
+              actualizar();
+              abrir(p);
+            }}
+          />
+        </PanelEnLinea>
+      )}
 
       <Card>
         <CardContent className="flex flex-col gap-4">
@@ -554,25 +578,33 @@ export function Productos() {
             filas={filtrados}
             cargando={cargando}
             claveFila={(p) => p._id}
-            onFila={abrir}
+            onFila={(p) => (seleccionado?._id === p._id ? cerrar() : abrir(p))}
+            tema="productos"
+            expandida={seleccionado?._id}
+            expansion={(p) =>
+              editando ? (
+                <>
+                  <EncabezadoExpansion titulo={`Editar ${p.nombre}`} descripcion='El stock se modifica desde "Ajustar stock".' onCerrar={cerrar} />
+                  <ProductoForm
+                    key={p._id}
+                    producto={p}
+                    categorias={categorias}
+                    onCancelar={() => abrir(p)}
+                    onGuardado={() => {
+                      actualizar();
+                      abrir(p);
+                    }}
+                  />
+                </>
+              ) : (
+                <DetalleProducto producto={p} onCerrar={cerrar} onActualizado={actualizar} onEditar={(x) => abrir(x, true)} />
+              )
+            }
             vacio={<Vacio icono={Package} titulo="No hay productos" descripcion="Prueba con otros filtros o crea un producto nuevo." />}
           />
         </CardContent>
       </Card>
 
-      <DetalleProducto
-        producto={seleccionado}
-        onCambio={() => setParams({})}
-        onActualizado={actualizar}
-        onEditar={(p) => setDialogo({ abierto: true, producto: p })}
-      />
-      <ProductoDialog
-        abierto={dialogo.abierto}
-        onCambio={(a) => setDialogo((d) => ({ ...d, abierto: a }))}
-        producto={dialogo.producto}
-        categorias={categorias}
-        onGuardado={actualizar}
-      />
     </>
   );
 }

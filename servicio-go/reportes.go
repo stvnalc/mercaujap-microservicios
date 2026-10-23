@@ -41,6 +41,7 @@ type Resumen struct {
 
 	VentasPorDia        []VentaDia        `json:"ventasPorDia"`
 	VentasPorMetodoPago []VentaMetodo     `json:"ventasPorMetodoPago"`
+	VentasPorEntrega    []VentaMetodo     `json:"ventasPorEntrega"` // retiro, delivery y cada empresa de envio
 	VentasPorCategoria  []VentasCategoria `json:"ventasPorCategoria"`
 	TopProductos        []RankingProducto `json:"topProductos"`
 	TopClientes         []RankingCliente  `json:"topClientes"`
@@ -151,6 +152,7 @@ func calcularResumen(d DatosNegocio, p Periodo) Resumen {
 		OrdenesPorEstado:       map[string]int{"PENDIENTE": 0, "PAGADA": 0, "ENVIADA": 0, "ENTREGADA": 0, "CANCELADA": 0},
 		VentasPorDia:           []VentaDia{},
 		VentasPorMetodoPago:    []VentaMetodo{},
+		VentasPorEntrega:       []VentaMetodo{},
 		VentasPorCategoria:     []VentasCategoria{},
 		TopProductos:           []RankingProducto{},
 		TopClientes:            []RankingCliente{},
@@ -196,6 +198,7 @@ func calcularResumen(d DatosNegocio, p Periodo) Resumen {
 	porCliente := map[int]*RankingCliente{}
 	porCategoria := map[string]*VentasCategoria{}
 	porMetodo := map[string]*VentaMetodo{}
+	porEntrega := map[string]*VentaMetodo{}
 	ordenesValidas := 0
 	anterior := p.anterior()
 
@@ -236,6 +239,21 @@ func calcularResumen(d DatosNegocio, p Periodo) Resumen {
 		}
 		m.Ordenes++
 		m.Total += o.Total
+
+		entrega := o.MetodoEntregaNombre
+		if entrega == "" {
+			entrega = "Sin especificar"
+		}
+		if o.EmpresaEnvioNombre != "" {
+			entrega += " · " + o.EmpresaEnvioNombre
+		}
+		e, ok := porEntrega[entrega]
+		if !ok {
+			e = &VentaMetodo{Metodo: entrega}
+			porEntrega[entrega] = e
+		}
+		e.Ordenes++
+		e.Total += o.Total
 
 		c, ok := porCliente[o.UsuarioID]
 		if !ok {
@@ -332,6 +350,12 @@ func calcularResumen(d DatosNegocio, p Periodo) Resumen {
 		r.VentasPorMetodoPago = append(r.VentasPorMetodoPago, *m)
 	}
 	sort.Slice(r.VentasPorMetodoPago, func(i, j int) bool { return r.VentasPorMetodoPago[i].Total > r.VentasPorMetodoPago[j].Total })
+
+	for _, e := range porEntrega {
+		e.Total = redondear(e.Total)
+		r.VentasPorEntrega = append(r.VentasPorEntrega, *e)
+	}
+	sort.Slice(r.VentasPorEntrega, func(i, j int) bool { return r.VentasPorEntrega[i].Ordenes > r.VentasPorEntrega[j].Ordenes })
 
 	return r
 }

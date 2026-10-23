@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { Check, ChevronsUpDown, Minus, Package, Plus, Search, ShoppingCart, Trash2, UserPlus, UserRound } from 'lucide-react';
+import { Check, ChevronsUpDown, Minus, Package, Plus, Search, ShoppingCart, Trash2, UserPlus, UserRound, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
+import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Textarea } from '@/components/ui/textarea';
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group';
 import { Separator } from '@/components/ui/separator';
@@ -15,12 +15,13 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { Badge } from '@/components/ui/badge';
 import { EncabezadoPagina } from '@/components/page-header';
-import { ClienteDialog } from '@/components/cliente-dialog';
+import { ClienteForm } from '@/components/cliente-form';
+import { IconoEntrega } from '@/components/badges';
 import { Vacio } from '@/components/vacio';
 import { notificarCambio } from '@/components/layout';
-import { useApi } from '@/hooks/use-api';
+import { useApi, useCatalogos } from '@/hooks/use-api';
 import { api } from '@/lib/api';
-import { dinero, METODOS_PAGO } from '@/lib/format';
+import { dinero, METODOS_ENTREGA, METODOS_PAGO } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
 const IVA = 0.16;
@@ -68,8 +69,8 @@ function SelectorCliente({ clientes, valor, onCambio, onNuevo }) {
           </Command>
         </PopoverContent>
       </Popover>
-      <Button variant="outline" size="icon-lg" className="size-10" onClick={onNuevo} aria-label="Nuevo cliente">
-        <UserPlus />
+      <Button variant="outline" className="h-10" onClick={onNuevo}>
+        <UserPlus /> <span className="hidden sm:inline">Nuevo cliente</span>
       </Button>
     </div>
   );
@@ -79,10 +80,13 @@ export function NuevoPedido() {
   const navegar = useNavigate();
   const { datos: clientesApi, recargar: recargarClientes } = useApi('/usuarios?tipo=clientes&activo=true');
   const { datos: productos, cargando: cargandoProductos } = useApi('/productos?activo=true');
+  const catalogos = useCatalogos();
   const [clienteId, setClienteId] = useState(null);
   const [carrito, setCarrito] = useState([]); // [{ producto, cantidad }]
   const [busqueda, setBusqueda] = useState('');
   const [metodo, setMetodo] = useState('PAGO_MOVIL');
+  const [entrega, setEntrega] = useState('ENVIO_NACIONAL');
+  const [empresa, setEmpresa] = useState('MRW');
   const [direccion, setDireccion] = useState('');
   const [notas, setNotas] = useState('');
   const [nuevoCliente, setNuevoCliente] = useState(false);
@@ -135,6 +139,7 @@ export function NuevoPedido() {
   const registrar = async () => {
     if (!clienteId) return toast.error('Selecciona el cliente del pedido');
     if (!carrito.length) return toast.error('Agrega al menos un producto');
+    if (entrega !== 'RETIRO_TIENDA' && !direccion.trim()) return toast.error('Indica la dirección de entrega');
     setEnviando(true);
     try {
       const orden = await api('/ordenes', {
@@ -142,7 +147,9 @@ export function NuevoPedido() {
         body: {
           usuarioId: clienteId,
           metodoPago: metodo,
-          direccionEnvio: direccion,
+          metodoEntrega: entrega,
+          empresaEnvio: entrega === 'ENVIO_NACIONAL' ? empresa : null,
+          direccionEnvio: entrega === 'RETIRO_TIENDA' ? null : direccion,
           notas,
           items: carrito.map((l) => ({ productoId: l.producto._id, cantidad: l.cantidad })),
         },
@@ -173,7 +180,26 @@ export function NuevoPedido() {
               {!clientesApi ? (
                 <Skeleton className="h-10 w-full" />
               ) : (
-                <SelectorCliente clientes={clientes} valor={clienteId} onCambio={(id) => elegirCliente(id)} onNuevo={() => setNuevoCliente(true)} />
+                <SelectorCliente clientes={clientes} valor={clienteId} onCambio={(id) => elegirCliente(id)} onNuevo={() => setNuevoCliente((v) => !v)} />
+              )}
+              {nuevoCliente && (
+                <div className="rounded-lg border border-primary/30 bg-primary/5 p-4 animate-in fade-in-0 slide-in-from-top-1">
+                  <div className="mb-3 flex items-center justify-between">
+                    <p className="text-sm font-medium">Registrar cliente nuevo</p>
+                    <Button variant="ghost" size="icon-sm" onClick={() => setNuevoCliente(false)} aria-label="Cerrar">
+                      <X />
+                    </Button>
+                  </div>
+                  <ClienteForm
+                    onCancelar={() => setNuevoCliente(false)}
+                    onGuardado={async (c) => {
+                      setNuevoCliente(false);
+                      await recargarClientes({ silencioso: true });
+                      setClienteId(c.id);
+                      setDireccion(c.direccion ?? '');
+                    }}
+                  />
+                </div>
               )}
               {cliente && (
                 <div className="grid gap-1 rounded-lg bg-muted/50 p-3 text-sm sm:grid-cols-3">
@@ -322,9 +348,51 @@ export function NuevoPedido() {
                 </Select>
               </Field>
               <Field>
-                <FieldLabel htmlFor="direccion">Dirección de envío</FieldLabel>
-                <Textarea id="direccion" rows={2} value={direccion} onChange={(e) => setDireccion(e.target.value)} placeholder="Se usa la dirección del cliente si se deja vacía" maxLength={200} />
+                <FieldLabel>Entrega</FieldLabel>
+                <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Forma de entrega">
+                  {Object.entries(METODOS_ENTREGA).map(([k, m]) => (
+                    <button
+                      key={k}
+                      type="button"
+                      role="radio"
+                      aria-checked={entrega === k}
+                      onClick={() => setEntrega(k)}
+                      className={cn(
+                        'flex flex-col items-center gap-1 rounded-lg border p-2 text-center text-xs transition-colors hover:bg-accent/50',
+                        entrega === k && 'border-primary bg-primary/5 text-primary ring-1 ring-primary/30'
+                      )}
+                    >
+                      <IconoEntrega metodo={k} className="size-4" />
+                      <span className="font-medium leading-tight">{m.nombre}</span>
+                    </button>
+                  ))}
+                </div>
+                <FieldDescription>{METODOS_ENTREGA[entrega].detalle}</FieldDescription>
               </Field>
+              {entrega === 'ENVIO_NACIONAL' && (
+                <Field>
+                  <FieldLabel>Empresa de envío</FieldLabel>
+                  <Select value={empresa} onValueChange={setEmpresa}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(catalogos?.empresasEnvio ?? [{ valor: 'MRW', nombre: 'MRW' }]).map((e) => (
+                        <SelectItem key={e.valor} value={e.valor}>
+                          {e.nombre}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FieldDescription>El número de guía se registra al despachar.</FieldDescription>
+                </Field>
+              )}
+              {entrega !== 'RETIRO_TIENDA' && (
+                <Field>
+                  <FieldLabel htmlFor="direccion">Dirección de entrega</FieldLabel>
+                  <Textarea id="direccion" rows={2} value={direccion} onChange={(e) => setDireccion(e.target.value)} placeholder="Urbanización, calle, ciudad, estado" maxLength={200} />
+                </Field>
+              )}
               <Field>
                 <FieldLabel htmlFor="notas">Notas</FieldLabel>
                 <Textarea id="notas" rows={2} value={notas} onChange={(e) => setNotas(e.target.value)} placeholder="Ej: entregar después de las 3 p. m." maxLength={500} />
@@ -353,15 +421,6 @@ export function NuevoPedido() {
         </Card>
       </div>
 
-      <ClienteDialog
-        abierto={nuevoCliente}
-        onCambio={setNuevoCliente}
-        onGuardado={async (c) => {
-          await recargarClientes({ silencioso: true });
-          setClienteId(c.id);
-          setDireccion(c.direccion ?? '');
-        }}
-      />
     </>
   );
 }

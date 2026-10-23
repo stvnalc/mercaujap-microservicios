@@ -58,6 +58,10 @@ func generarCSV(rep Reporte, r Resumen) ([]byte, error) {
 	for _, m := range r.VentasPorMetodoPago {
 		filas = append(filas, []string{m.Metodo, ent(m.Ordenes), num(m.Total)})
 	}
+	filas = append(filas, []string{}, []string{"ENTREGAS"}, []string{"Forma de entrega", "Pedidos", "Total"})
+	for _, m := range r.VentasPorEntrega {
+		filas = append(filas, []string{m.Metodo, ent(m.Ordenes), num(m.Total)})
+	}
 	filas = append(filas, []string{}, []string{"PRODUCTOS PARA REPONER"}, []string{"SKU", "Producto", "Stock", "Stock minimo"})
 	for _, p := range r.StockBajo {
 		filas = append(filas, []string{p.Sku, p.Nombre, ent(p.Stock), ent(p.StockMinimo)})

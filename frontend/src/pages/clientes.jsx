@@ -1,20 +1,19 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { Mail, MapPin, MoreHorizontal, Pencil, Phone, Plus, Power, ReceiptText, Search, Trash2, UserCheck, UserPlus, Users } from 'lucide-react';
+import { Mail, MapPin, MoreHorizontal, Pencil, Phone, Plus, Power, ReceiptText, Search, Trash2, UserCheck, UserPlus, Users, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Separator } from '@/components/ui/separator';
 import { EncabezadoPagina } from '@/components/page-header';
 import { StatCard } from '@/components/stat-card';
 import { TablaDatos } from '@/components/tabla-datos';
 import { ActivoBadge, EstadoBadge } from '@/components/badges';
-import { ClienteDialog } from '@/components/cliente-dialog';
+import { ClienteForm } from '@/components/cliente-form';
+import { EncabezadoExpansion, PanelEnLinea } from '@/components/panel-en-linea';
 import { Vacio } from '@/components/vacio';
 import { useConfirmar } from '@/components/confirmar';
 import { useApi } from '@/hooks/use-api';
@@ -22,34 +21,38 @@ import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { dinero, fecha, hace, iniciales, num } from '@/lib/format';
 
+// Ficha del cliente que se abre DENTRO de la tabla, debajo de su fila
 function DetalleCliente({ cliente, ordenes, onCerrar, onEditar }) {
   const navegar = useNavigate();
-  if (!cliente) return null;
   const propias = ordenes.filter((o) => o.usuarioId === cliente.id);
   const validas = propias.filter((o) => o.estado !== 'CANCELADA');
   const gastado = validas.reduce((t, o) => t + Number(o.total), 0);
   return (
-    <Sheet open onOpenChange={(a) => !a && onCerrar()}>
-      <SheetContent className="w-full gap-0 overflow-y-auto sm:max-w-lg">
-        <SheetHeader className="border-b">
-          <div className="flex items-center gap-3">
-            <Avatar className="size-12">
-              <AvatarFallback className="bg-primary/10 text-base font-medium text-primary">{iniciales(cliente.nombre)}</AvatarFallback>
-            </Avatar>
-            <div className="min-w-0">
-              <SheetTitle className="truncate text-lg">{cliente.nombre}</SheetTitle>
-              <SheetDescription>Cliente desde {fecha(cliente.creado_en)}</SheetDescription>
-            </div>
-          </div>
-        </SheetHeader>
-        <div className="grid gap-6 p-4">
-          <div className="flex items-center justify-between">
-            <ActivoBadge activo={cliente.activo} />
-            <Button variant="outline" size="sm" onClick={() => onEditar(cliente)}>
-              <Pencil /> Editar
+    <div className="grid gap-x-8 gap-y-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+      <div className="lg:col-span-2">
+        <EncabezadoExpansion
+          titulo={
+            <span className="flex items-center gap-2">
+              {cliente.nombre} <ActivoBadge activo={cliente.activo} />
+            </span>
+          }
+          descripcion={`Cliente desde ${fecha(cliente.creado_en)}`}
+          onCerrar={onCerrar}
+        >
+          <Button variant="outline" size="sm" onClick={() => onEditar(cliente)}>
+            <Pencil /> Editar
+          </Button>
+          {cliente.activo && (
+            <Button size="sm" asChild>
+              <Link to={`/pedidos/nuevo?cliente=${cliente.id}`}>
+                <Plus /> Nuevo pedido
+              </Link>
             </Button>
-          </div>
-          <dl className="grid gap-3 text-sm">
+          )}
+        </EncabezadoExpansion>
+      </div>
+        <div className="grid content-start gap-5">
+          <dl className="grid gap-3 text-sm sm:grid-cols-2">
             {[
               [UserCheck, 'Documento', cliente.documento],
               [Mail, 'Correo', cliente.email],
@@ -71,28 +74,22 @@ function DetalleCliente({ cliente, ordenes, onCerrar, onEditar }) {
               ['Total comprado', dinero(gastado)],
               ['Ticket promedio', dinero(validas.length ? gastado / validas.length : 0)],
             ].map(([t, v]) => (
-              <div key={t} className="rounded-lg bg-muted/50 p-3">
+              <div key={t} className="rounded-lg border bg-background p-3">
                 <p className="text-xs text-muted-foreground">{t}</p>
                 <p className="font-semibold tabular">{v}</p>
               </div>
             ))}
           </div>
-          <Separator />
-          <div className="grid gap-3">
+        </div>
+          <div className="grid content-start gap-3">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-medium">Historial de pedidos</h3>
-              {cliente.activo && (
-                <Button size="sm" asChild>
-                  <Link to={`/pedidos/nuevo?cliente=${cliente.id}`}>
-                    <Plus /> Nuevo pedido
-                  </Link>
-                </Button>
-              )}
+              <span className="text-xs text-muted-foreground">{propias.length} en total</span>
             </div>
             {propias.length === 0 ? (
               <p className="text-sm text-muted-foreground">Este cliente aún no tiene pedidos.</p>
             ) : (
-              <ul className="divide-y rounded-lg border">
+              <ul className="max-h-[20rem] divide-y overflow-y-auto rounded-lg border bg-background">
                 {propias.map((o) => (
                   <li key={o.id}>
                     <button type="button" onClick={() => navegar(`/pedidos/${o.id}`)} className="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-muted/50">
@@ -110,9 +107,7 @@ function DetalleCliente({ cliente, ordenes, onCerrar, onEditar }) {
               </ul>
             )}
           </div>
-        </div>
-      </SheetContent>
-    </Sheet>
+    </div>
   );
 }
 
@@ -124,11 +119,15 @@ export function Clientes() {
   const { datos: ordenesApi } = useApi('/ordenes');
   const [busqueda, setBusqueda] = useState('');
   const [filtro, setFiltro] = useState('todos');
-  const [dialogo, setDialogo] = useState({ abierto: false, cliente: null });
+  const [creando, setCreando] = useState(false);
 
   const ordenes = ordenesApi ?? [];
   const lista = clientes ?? [];
+  // ?id=5 abre la ficha del cliente dentro de la tabla; &editar=1 abre su formulario ahi mismo
   const seleccionado = lista.find((c) => String(c.id) === params.get('id')) ?? null;
+  const editando = !!seleccionado && params.get('editar') === '1';
+  const abrir = (c, editar = false) => setParams(editar ? { id: c.id, editar: '1' } : { id: c.id }, { replace: true });
+  const cerrar = () => setParams({}, { replace: true });
 
   const compras = useMemo(() => {
     const m = {};
@@ -175,7 +174,7 @@ export function Clientes() {
     try {
       await api(`/usuarios/${c.id}`, { method: 'DELETE' });
       toast.success('Cliente eliminado');
-      if (seleccionado?.id === c.id) setParams({});
+      if (seleccionado?.id === c.id) cerrar();
       recargar({ silencioso: true });
     } catch (e) {
       toast.error('No se pudo eliminar', { description: e.message });
@@ -217,10 +216,10 @@ export function Clientes() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onSelect={() => setParams({ id: c.id })}>
+              <DropdownMenuItem onSelect={() => abrir(c)}>
                 <ReceiptText /> Ver pedidos
               </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => setDialogo({ abierto: true, cliente: c })}>
+              <DropdownMenuItem onSelect={() => abrir(c, true)}>
                 <Pencil /> Editar
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => alternarActivo(c)}>
@@ -244,8 +243,8 @@ export function Clientes() {
   return (
     <>
       <EncabezadoPagina titulo="Clientes" descripcion="Personas y empresas que compran en la tienda.">
-        <Button onClick={() => setDialogo({ abierto: true, cliente: null })}>
-          <UserPlus /> Nuevo cliente
+        <Button onClick={() => setCreando((v) => !v)} variant={creando ? 'outline' : 'default'}>
+          {creando ? <X /> : <UserPlus />} {creando ? 'Cerrar formulario' : 'Nuevo cliente'}
         </Button>
       </EncabezadoPagina>
       <div className="grid gap-4 sm:grid-cols-3">
@@ -253,6 +252,18 @@ export function Clientes() {
         <StatCard titulo="Con compras" icono={ReceiptText} cargando={!clientes || !ordenesApi} valor={num(conCompras)} detalle={lista.length ? `${Math.round((conCompras / lista.length) * 100)}% de la cartera` : ''} />
         <StatCard titulo="Nuevos (30 días)" icono={UserPlus} cargando={!clientes} valor={num(nuevosMes)} detalle="Registrados recientemente" />
       </div>
+      {creando && (
+        <PanelEnLinea icono={UserPlus} titulo="Nuevo cliente" descripcion="Registra un cliente para poder asignarle pedidos." onCerrar={() => setCreando(false)}>
+          <ClienteForm
+            onCancelar={() => setCreando(false)}
+            onGuardado={(c) => {
+              setCreando(false);
+              recargar({ silencioso: true });
+              abrir(c);
+            }}
+          />
+        </PanelEnLinea>
+      )}
       <Card>
         <CardContent className="flex flex-col gap-4">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -274,18 +285,31 @@ export function Clientes() {
             columnas={columnas}
             filas={filtrados}
             cargando={cargando}
-            onFila={(c) => setParams({ id: c.id })}
+            onFila={(c) => (seleccionado?.id === c.id ? cerrar() : abrir(c))}
+            tema="usuarios"
+            expandida={seleccionado?.id}
+            expansion={(c) =>
+              editando ? (
+                <>
+                  <EncabezadoExpansion titulo={`Editar a ${c.nombre}`} descripcion="Actualiza los datos del cliente." onCerrar={cerrar} />
+                  <ClienteForm
+                    key={c.id}
+                    cliente={c}
+                    onCancelar={() => abrir(c)}
+                    onGuardado={() => {
+                      recargar({ silencioso: true });
+                      abrir(c);
+                    }}
+                  />
+                </>
+              ) : (
+                <DetalleCliente cliente={c} ordenes={ordenes} onCerrar={cerrar} onEditar={(x) => abrir(x, true)} />
+              )
+            }
             vacio={<Vacio icono={Users} titulo="No hay clientes" descripcion="Prueba con otra búsqueda o registra un cliente." />}
           />
         </CardContent>
       </Card>
-      <DetalleCliente cliente={seleccionado} ordenes={ordenes} onCerrar={() => setParams({})} onEditar={(c) => setDialogo({ abierto: true, cliente: c })} />
-      <ClienteDialog
-        abierto={dialogo.abierto}
-        onCambio={(a) => setDialogo((d) => ({ ...d, abierto: a }))}
-        cliente={dialogo.cliente}
-        onGuardado={() => recargar({ silencioso: true })}
-      />
     </>
   );
 }

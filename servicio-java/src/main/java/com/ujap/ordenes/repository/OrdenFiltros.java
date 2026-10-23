@@ -23,7 +23,9 @@ public final class OrdenFiltros {
                 condiciones = cb.and(condiciones, cb.or(
                         cb.like(cb.lower(root.get("codigo")), patron),
                         cb.like(cb.lower(root.get("usuarioNombre")), patron),
-                        cb.like(cb.lower(root.get("usuarioDocumento")), patron)));
+                        cb.like(cb.lower(root.get("usuarioDocumento")), patron),
+                        cb.like(cb.lower(root.get("numeroGuia")), patron),
+                        cb.like(cb.lower(root.get("pagoReferencia")), patron)));
             }
             return condiciones;
         };

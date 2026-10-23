@@ -47,6 +47,12 @@ export const METODOS_PAGO = {
   ZELLE: 'Zelle',
 };
 
+export const METODOS_ENTREGA = {
+  ENVIO_NACIONAL: { nombre: 'Envío nacional', detalle: 'Por empresa de encomiendas' },
+  DELIVERY: { nombre: 'Delivery', detalle: 'Entrega local en la ciudad' },
+  RETIRO_TIENDA: { nombre: 'Retiro en tienda', detalle: 'El cliente lo busca' },
+};
+
 export const ROLES = {
   admin: 'Administrador',
   vendedor: 'Vendedor',

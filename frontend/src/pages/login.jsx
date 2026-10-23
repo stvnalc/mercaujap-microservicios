@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Eye, EyeOff, KeyRound, Lock, Mail, ShieldCheck, Truck, BarChart3 } from 'lucide-react';
+import { Eye, EyeOff, KeyRound, Lock, Mail, Radio, ShieldCheck, Truck, BarChart3 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
@@ -8,6 +8,8 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Spinner } from '@/components/ui/spinner';
 import { LogoMarca } from '@/components/logo';
 import { useAuth } from '@/lib/auth';
+
+const INTEGRANTES = ['Steven Alcalá', 'Jorge Fattal', 'Eyleen Berrio', 'Ricardo Elbazi'];
 
 const CUENTAS_DEMO = [
   { rol: 'Administrador', email: 'admin@mercaujap.com', password: 'admin123' },
@@ -111,7 +113,12 @@ export function Login() {
             </Card>
           </div>
         </div>
-        <p className="text-center text-xs text-muted-foreground">© {new Date().getFullYear()} MercaUJAP · Valencia, Carabobo</p>
+        <footer className="grid gap-1 text-center text-xs text-muted-foreground">
+          <p>© {new Date().getFullYear()} MercaUJAP · Valencia, Carabobo</p>
+          <p>
+            Desarrollado por <span className="font-medium text-foreground/80">{INTEGRANTES.slice(0, -1).join(', ')} y {INTEGRANTES.at(-1)}</span>
+          </p>
+        </footer>
       </div>
 
       <div className="relative hidden overflow-hidden bg-[oklch(0.45_0.2_275)] lg:block">
@@ -125,7 +132,8 @@ export function Login() {
           </div>
           <div className="grid gap-3">
             {[
-              { icono: Truck, titulo: 'Seguimiento de pedidos', texto: 'Del pago a la entrega, con historial de cada cambio.' },
+              { icono: Truck, titulo: 'Seguimiento de pedidos', texto: 'Del pago a la entrega: referencia, empresa de envío y guía.' },
+              { icono: Radio, titulo: 'Todo el equipo en tiempo real', texto: 'Los cambios de tus compañeros aparecen al instante.' },
               { icono: BarChart3, titulo: 'Reportes al instante', texto: 'Ventas, márgenes y productos más vendidos.' },
               { icono: ShieldCheck, titulo: 'Acceso por roles', texto: 'Administradores y vendedores con permisos distintos.' },
             ].map((f) => (

@@ -20,6 +20,11 @@ public class HistorialEstado {
 
     private Instant fecha;
 
+    // Resumen generado por el sistema, ej: "Pago móvil · Banesco · Ref. 004512" o "MRW · Guía 7745120"
+    @Column(length = 200)
+    private String detalle;
+
+    // Comentario libre que escribe el usuario (opcional)
     @Column(length = 300)
     private String nota;
 
@@ -32,9 +37,10 @@ public class HistorialEstado {
 
     public HistorialEstado() {}
 
-    public HistorialEstado(EstadoOrden estado, Instant fecha, String nota, String usuario) {
+    public HistorialEstado(EstadoOrden estado, Instant fecha, String detalle, String nota, String usuario) {
         this.estado = estado;
         this.fecha = fecha;
+        this.detalle = detalle;
         this.nota = nota;
         this.usuario = usuario;
     }
@@ -42,6 +48,7 @@ public class HistorialEstado {
     public Long getId() { return id; }
     public EstadoOrden getEstado() { return estado; }
     public Instant getFecha() { return fecha; }
+    public String getDetalle() { return detalle; }
     public String getNota() { return nota; }
     public String getUsuario() { return usuario; }
     public Orden getOrden() { return orden; }

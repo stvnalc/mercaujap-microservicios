@@ -19,6 +19,7 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * COMUNICACION ENTRE MICROSERVICIOS.
@@ -26,6 +27,7 @@ import java.util.Map;
  *   - servicio-python  (http://servicio-python:8000/usuarios/{id})        para validar el cliente
  *   - servicio-node    (http://servicio-node:3000/productos/{id})         para precio y stock
  *   - servicio-node    (PATCH /productos/{id}/stock)                      para descontar / devolver stock
+ *   - servicio-node    (POST /interno/eventos)                            para avisar en tiempo real (WebSocket)
  * Dentro de Docker los servicios se encuentran por su nombre (DNS de la red "backend").
  */
 @Component
@@ -38,9 +40,11 @@ public class ServiciosClient {
 
     private final RestClient usuarios;
     private final RestClient productos;
+    private final RestClient eventos;
 
     public ServiciosClient(@Value("${servicios.usuarios.url}") String usuariosUrl,
-                           @Value("${servicios.productos.url}") String productosUrl) {
+                           @Value("${servicios.productos.url}") String productosUrl,
+                           @Value("${servicios.eventos.url}") String eventosUrl) {
         // HTTP/1.1 explicito y timeouts cortos: si otro servicio esta caido, fallamos rapido
         HttpClient http = HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_1_1)
@@ -51,6 +55,27 @@ public class ServiciosClient {
 
         this.usuarios = RestClient.builder().requestFactory(factory).baseUrl(usuariosUrl).build();
         this.productos = RestClient.builder().requestFactory(factory).baseUrl(productosUrl).build();
+        this.eventos = RestClient.builder().requestFactory(factory).baseUrl(eventosUrl).build();
+    }
+
+    /**
+     * Avisa a servicio-node que un pedido cambio, para que lo reenvie por WebSocket a los paneles abiertos.
+     * Es asincrono ("dispara y olvida"): si falla, el pedido ya quedo guardado igual.
+     */
+    public void publicarEvento(String accion, Long id, String mensaje, Long autorId, String autorNombre) {
+        Map<String, Object> cuerpo = new HashMap<>();
+        cuerpo.put("tema", "ordenes");
+        cuerpo.put("accion", accion);
+        cuerpo.put("id", id);
+        cuerpo.put("mensaje", mensaje);
+        cuerpo.put("usuario", autorId == null ? null : Map.of("id", autorId, "nombre", autorNombre == null ? "" : autorNombre));
+        CompletableFuture.runAsync(() -> {
+            try {
+                eventos.post().body(cuerpo).retrieve().toBodilessEntity();
+            } catch (RuntimeException e) {
+                System.err.println("[java] No se pudo publicar el evento en tiempo real: " + e.getMessage());
+            }
+        });
     }
 
     public UsuarioDto obtenerUsuario(Long id) {

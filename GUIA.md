@@ -2,6 +2,8 @@
 
 Esta guía es para quien sabe poco de programación (o solo lo básico) y necesita **entender, ejecutar y explicar** el proyecto. Léela en orden, porque cada sección se apoya en la anterior.
 
+**Integrantes:** Steven Alcalá · Jorge Fattal · Eyleen Berrio · Ricardo Elbazi
+
 **Índice**
 
 1. [¿Qué hace el sistema? (en palabras simples)](#1-qué-hace-el-sistema-en-palabras-simples)
@@ -24,7 +26,8 @@ Esta guía es para quien sabe poco de programación (o solo lo básico) y necesi
 
 MercaUJAP es el **panel de gestión de una tienda de tecnología**: lo que usa el personal (administradores y vendedores) para:
 
-- Registrar **pedidos** de los clientes y llevarlos de *pendiente* a *pagado*, *enviado* y *entregado* (o cancelarlos).
+- Registrar **pedidos** de los clientes y llevarlos de *pendiente* a *pagado*, *enviado* y *entregado* (o cancelarlos). Al pagar se guarda el **banco** y **solo el número de referencia**; al despachar, la **empresa de envío** (MRW, Zoom, Tealca…) y el **número de guía**, cada dato en su propio campo.
+- Trabajar **en equipo y en tiempo real**: si un compañero hace un cambio, tu pantalla se actualiza sola (sin recargar la página) y te avisa quién lo hizo.
 - Controlar el **catálogo**: precios, costos, cuánto se gana con cada producto (margen) y cuántas unidades hay (stock).
 - Ver el **historial de inventario**: cada unidad que entra o sale queda anotada con su motivo (*kardex*).
 - Gestionar **clientes** y su historial de compras.
@@ -52,7 +55,7 @@ Cuando el **mesero (Java)** toma un pedido, le pregunta a la **recepción (Pytho
 ### 🌐 API y endpoint
 Una **API** es la forma en que un programa le ofrece servicios a otros programas por la red. Cada "puerta" de la API se llama **endpoint**: una dirección (URL) + un método.
 
-Ejemplo: `GET http://localhost/api/productos` significa *"dame la lista de productos"*.
+Ejemplo: `GET http://localhost:8080/api/productos` significa *"dame la lista de productos"*.
 
 ### 📨 Métodos HTTP (los verbos)
 
@@ -114,8 +117,11 @@ Cuando inicias sesión, Python te entrega un **token**: un texto largo **firmado
 ### 🔐 Variables de entorno (`.env`)
 Contraseñas y configuraciones **no se escriben dentro del código**: se ponen en un archivo `.env` que **no se sube a GitHub** (por eso está en `.gitignore`). En el repositorio está `.env.example` como plantilla.
 
-### 🚪 API Gateway
-Una **puerta de entrada única**. Todo entra por `http://localhost` (puerto 80) y **Nginx** reparte cada petición al servicio correcto según la ruta (`/api/usuarios`, `/api/productos`…). Además **revisa el token** antes de dejar pasar cada petición.
+### 🚪 API Gateway y el puerto único
+Una **puerta de entrada única**. Todo entra por **un solo puerto**, `http://localhost:8080`, y **Nginx** reparte cada petición al servicio correcto según la ruta (`/api/usuarios` → Python en el puerto 8000, `/api/productos` → Node en el 3000…). Los demás contenedores **no abren puertos** en tu PC: solo se puede llegar a ellos a través del gateway. Además **revisa el token** antes de dejar pasar cada petición.
+
+### ⚡ WebSocket (tiempo real)
+Normalmente el navegador **pregunta** y el servidor **responde** (HTTP). Con un **WebSocket** la conexión queda **abierta** y el servidor puede **avisarle** al navegador cuando algo cambia, sin que el navegador pregunte. Así, si Luis registra un pago, la pantalla de Andrea se actualiza sola al instante. Es lo mismo que usan los chats.
 
 ### ⚛️ React y shadcn/ui
 - **React** es una librería para construir interfaces con **componentes**: piezas reutilizables como `<Button>`, `<Card>` o `<TablaDatos>`.
@@ -159,7 +165,7 @@ docker compose ps
 Todos los servicios deben decir `Up` y los que tienen healthcheck `(healthy)`.
 
 ### Paso 4: abrir la aplicación e iniciar sesión
-👉 **http://localhost**
+👉 **http://localhost:8080**
 
 | Rol | Correo | Contraseña |
 |---|---|---|
@@ -180,7 +186,7 @@ En la pantalla de inicio hay un recuadro **"Cuentas de demostración"**: al hace
 Orden recomendado para **mostrarle el proyecto a la profesora**:
 
 1. **Terminal**: `docker compose ps` → los 8 contenedores corriendo (2 bases de datos, 4 microservicios, frontend y gateway).
-2. **Inicio de sesión** como administrador. Antes, mostrar que sin sesión la API no responde: `curl -i http://localhost/api/productos` → `401`. *El gateway protege todo.*
+2. **Inicio de sesión** como administrador en **http://localhost:8080**. Antes, mostrar que sin sesión la API no responde: `curl -i http://localhost:8080/api/productos` → `401`. *El gateway protege todo.* Mostrar también que `docker compose ps` solo tiene **un puerto publicado (8080)**: todo pasa por el gateway.
 3. **Panel**: ventas, pedidos, ticket promedio y ganancia, con comparación contra el período anterior. Cambiar entre 7 / 30 / 90 días.
    ➜ *Estos números los calcula Go consultando a Python, Node y Java al mismo tiempo.*
 4. **Nuevo pedido** (botón morado de la barra lateral):
@@ -188,16 +194,17 @@ Orden recomendado para **mostrarle el proyecto a la profesora**:
    - Agregar 2 productos, subir la cantidad de uno con el **+**. Ver el subtotal, el **IVA 16 %** y el total.
    - **Registrar pedido** → se abre el detalle con su código `PED-0000xx`.
    ➜ *Java le preguntó a Python si el cliente existe, a Node el precio y el stock, y luego le pidió a Node descontar las unidades.*
-5. En el detalle del pedido: **Registrar pago** (escribir una referencia) → **Marcar como enviado** → ver cómo avanza la barra de progreso y el **historial** con quién hizo cada cambio y cuándo.
+5. En el detalle del pedido: **Registrar pago** → el formulario se abre **ahí mismo** en la página: elegir el **banco** y escribir **solo el número de referencia** (si escribes letras, no las acepta). Luego **Marcar como enviado** → elegir la **empresa de envío** y el **número de guía**. Ver cómo avanza la barra de progreso y el **historial** ("Pago móvil · Banesco · Ref. 004512", "MRW · Guía 7745120").
    - Mostrar el botón **Imprimir**, que genera la nota de entrega.
-6. **Productos** → abrir el producto vendido: el stock bajó y en **Historial de movimientos** aparece `Venta · PED-0000xx`. Hacer una **Entrada** de 10 unidades ("Compra a proveedor").
-7. **Cancelar** un pedido pendiente → el stock **regresa** (aparece "Pedido cancelado" en el historial de movimientos).
-8. **Reportes** → **Generar reporte** → "Mes anterior" → se guarda y se puede **Descargar CSV** (abre en Excel).
-9. **Roles**: cerrar sesión y entrar como **vendedor**. No aparece *Equipo* ni las opciones de *Eliminar*. Aunque intentara borrar algo por la API, el gateway responde `403`.
-10. **Tolerancia a fallos** (extra): `docker compose stop servicio-node` → el panel muestra *"Datos incompletos: no respondieron Productos"* y el indicador de estado se pone rojo, pero pedidos, clientes y reportes siguen funcionando. Luego `docker compose start servicio-node`.
-11. (Extra) **http://localhost:8001/docs**: documentación automática (Swagger) de la API de Python.
+6. **Productos** → hacer clic en el producto vendido: su detalle se abre **dentro de la tabla**, debajo de la fila, sin tapar nada. El stock bajó y en **Historial de movimientos** aparece `Venta · PED-0000xx`. Hacer una **Entrada** de 10 unidades ("Compra a proveedor"). **Editar** abre el formulario en el mismo lugar.
+7. ⚡ **Tiempo real** (lo más vistoso): abrir una **segunda ventana** (por ejemplo en modo incógnito, o con `http://127.0.0.1:8080`) e iniciar sesión como **vendedor**. Arriba, junto a **"En vivo"**, aparece el avatar del otro usuario. Poner las dos ventanas lado a lado en la misma pantalla (Productos o el mismo pedido) y hacer un cambio en una: en la otra aparece el aviso *"Luis Herrera: Ajustó el stock de…"*, el dato cambia solo y la fila se ilumina. Si las dos editan el mismo producto, el formulario avisa *"Otra persona modificó este producto"*.
+8. **Cancelar** un pedido pendiente (pide el motivo) → el stock **regresa** (aparece "Pedido cancelado" en el historial de movimientos).
+9. **Reportes** → **Generar reporte** → "Mes anterior" → se guarda y se puede **Descargar CSV** (abre en Excel).
+10. **Roles**: cerrar sesión y entrar como **vendedor**. No aparece *Equipo* ni las opciones de *Eliminar*. Aunque intentara borrar algo por la API, el gateway responde `403`.
+11. **Tolerancia a fallos** (extra): `docker compose stop servicio-node` → el panel muestra *"Datos incompletos: no respondieron Productos"*, el indicador de tiempo real pasa a **"Sin conexión"**, pero pedidos, clientes y reportes siguen funcionando. Luego `docker compose start servicio-node` → en unos segundos vuelve a **"En vivo"** solo.
+12. (Extra) Swagger de Python: levantar con `docker compose -f docker-compose.yml -f docker-compose.debug.yml up -d` y abrir **http://localhost:8001/docs**.
 
-Otros detalles para mostrar: el buscador global (**Ctrl + K**), el tema oscuro (icono de luna), las notificaciones de stock bajo (campana) y la vista en celular.
+Otros detalles para mostrar: el buscador global (**Ctrl + K**), el tema oscuro (icono de luna), las notificaciones (campana: pestaña **Alertas** de stock y pedidos, y pestaña **Actividad** con lo que hizo el equipo) y la vista en celular.
 
 ---
 
@@ -238,12 +245,42 @@ Cuando pulsas **"Registrar pedido"** pasa esto:
 ### El ciclo de vida de un pedido (máquina de estados)
 
 ```
-  PENDIENTE ──► PAGADO ──► ENVIADO ──► ENTREGADO
-      │            │
+  PENDIENTE ──► PAGADO ──► ENVIADO ──► ENTREGADO      (delivery o envío nacional)
+      │            │  └──────────────► ENTREGADO      (retiro en tienda: no se envía)
       └────────────┴──────► CANCELADO   (devuelve el stock)
 ```
 
 Java no deja hacer saltos inválidos. Por ejemplo, pasar de *pendiente* a *entregado* responde `409: No se puede pasar de PENDIENTE a ENTREGADA`. La regla está en `EstadoOrden.java` (método `siguientes()`), y el frontend solo muestra los botones de los pasos permitidos.
+
+Cada paso **pide sus propios datos**, y cada uno se guarda en su **propia columna** de la base de datos (no todo junto en un texto):
+
+| Paso | Qué se registra | Validación (en Java) |
+|---|---|---|
+| Crear | Forma de entrega (retiro, delivery o envío nacional) y empresa de envío preferida | Delivery y envío nacional necesitan dirección |
+| **Pagado** | Método de pago, **banco** (código: 0134 Banesco, 0102 Venezuela…) y **número de referencia** | Pago móvil y transferencia: banco obligatorio y referencia **solo con números**. Zelle: letras y números. Efectivo: nada |
+| **Enviado** | **Empresa de envío** (MRW, Zoom, Tealca, Domesa, Liberty Express) y **número de guía** | Envío nacional: empresa y guía obligatorias |
+| **Entregado** | Quién lo recibió | Opcional |
+| **Cancelado** | Motivo | Obligatorio |
+
+Gracias a esto se puede **buscar un pedido por su número de guía o de referencia**, y los reportes muestran las ventas por cada empresa de envío.
+
+### ⚡ Tiempo real: cómo se enteran los demás
+
+```
+ Luis (vendedor)          Gateway            Java               Node (WebSocket)        Andrea (admin)
+    │ PATCH .../estado      │                  │                     │  conexión abierta ════ │
+    │──────────────────────►│─────────────────►│ guarda el pago      │                        │
+    │                       │                  │ POST /interno/eventos ──►                    │
+    │ ◄─────────────────────│◄─────────────────│                     │ "Luis confirmó el pago │
+    │                       │                  │                     │  de PED-000083" ══════►│ la pantalla
+    │                       │                  │                     │                        │ se actualiza sola
+```
+
+1. Al iniciar sesión, el navegador abre **una** conexión WebSocket a `ws://localhost:8080/api/tiempo-real`. El gateway la valida igual que cualquier petición (con el token) y la pasa a **Node** (`servicio-node/tiempo-real.js`).
+2. Cada vez que un servicio cambia algo, **avisa a Node**: Python (clientes, equipo), Java (pedidos) y Go (reportes) hacen un `POST http://servicio-node:3000/interno/eventos`. Node también avisa sus propios cambios (productos y stock). Esa ruta **no está en el gateway**, así que nadie la puede llamar desde fuera.
+3. Node reenvía el aviso a **todos los navegadores conectados**.
+4. En el navegador (`frontend/src/lib/tiempo-real.jsx`), cada pantalla sabe de qué datos depende y **se vuelve a cargar sola, sin parpadear**. Además aparece un aviso con el nombre de quien hizo el cambio, la fila se ilumina y queda en la pestaña *Actividad* de la campana.
+5. Si se corta la conexión, el indicador pasa a *Sin conexión* y se reconecta solo (espera 1 s, 2 s, 4 s… hasta 30 s).
 
 > ¿Cómo sabe Java dónde está Python? En Docker Compose, **cada servicio se puede llamar por su nombre**: `http://servicio-python:8000`. Esa URL se le pasa a Java con la variable de entorno `USUARIOS_SERVICE_URL`.
 
@@ -298,7 +335,8 @@ def login(datos, db):
 
 | Archivo | Qué hace |
 |---|---|
-| `index.js` | Servidor Express con los endpoints de productos y movimientos. Conecta a MongoDB y carga 16 productos de ejemplo. |
+| `index.js` | Servidor Express con los endpoints de productos y movimientos. Conecta a MongoDB y carga 16 productos de ejemplo. Recibe los avisos de los otros servicios en `POST /interno/eventos`. |
+| `tiempo-real.js` | **Servidor WebSocket** (librería `ws`): guarda quién está conectado y envía los avisos a todos los navegadores. |
 | `producto.model.js` | Esquema del producto: SKU, nombre, marca, categoría, precio, costo, stock, stock mínimo. Calcula `estadoStock` (disponible/bajo/agotado) y `margen`. |
 | `movimiento.model.js` | Esquema del **kardex**: cada entrada/salida con motivo, referencia, usuario y stock antes/después. |
 | `datos-iniciales.js` | El catálogo de ejemplo. |
@@ -318,11 +356,12 @@ Ruta: `src/main/java/com/ujap/ordenes/`
 |---|---|
 | `model/Orden.java`, `OrdenItem.java`, `HistorialEstado.java` | Entidades JPA = tablas `ordenes`, `orden_items` y `orden_historial`. |
 | `model/EstadoOrden.java` | Los estados y **qué cambios están permitidos** (máquina de estados). |
-| `model/MetodoPago.java` | Pago móvil, transferencia, tarjeta, efectivo, Zelle. |
+| `model/MetodoPago.java` | Pago móvil, transferencia, tarjeta, efectivo, Zelle, y **qué dato pide cada uno** (referencia solo numérica, banco…). |
+| `model/MetodoEntrega.java` · `EmpresaEnvio.java` · `Bancos.java` | Retiro en tienda / delivery / envío nacional; MRW, Zoom, Tealca, Domesa, Liberty Express; y la lista de bancos con su código. |
 | `repository/OrdenRepository.java` + `OrdenFiltros.java` | Acceso a la BD. Los filtros (estado, cliente, fechas, búsqueda) se arman dinámicamente con *Specifications*. |
 | `controller/OrdenController.java` | Endpoints REST (`@GetMapping`, `@PostMapping`…). |
 | `service/OrdenService.java` | **La lógica de negocio**: validar, calcular IVA, descontar stock, compensar si falla, cambiar estado. |
-| `client/ServiciosClient.java` | **Comunicación con Python y Node** usando `RestClient` (peticiones HTTP). |
+| `client/ServiciosClient.java` | **Comunicación con Python y Node** usando `RestClient` (peticiones HTTP), incluido el aviso de tiempo real. |
 | `demo/DatosDemo.java` | Al primer arranque crea ~80 pedidos de ejemplo usando la misma lógica de un pedido real. |
 | `dto/*.java` · `exception/*.java` | Forma del JSON que recibe (con validaciones) y errores en JSON (`{ "error": "..." }`). |
 | `resources/application.properties` | Configuración (BD, URLs de los otros servicios, IVA) desde variables de entorno. |
@@ -356,10 +395,12 @@ Si uno de los servicios no responde, el panel **igual se calcula** y avisa cuál
 | `src/main.jsx` · `src/App.jsx` | Punto de entrada y **rutas** (`/pedidos`, `/productos/…`). Si no hay sesión muestra el login. |
 | `src/lib/api.js` | **Todas las llamadas a la API** pasan por aquí: agrega el token y convierte los errores en mensajes. |
 | `src/lib/auth.jsx` | Guarda la sesión del usuario (login, logout, rol). |
+| `src/lib/tiempo-real.jsx` | Abre el **WebSocket**, se reconecta si se cae, muestra los avisos y le dice a cada pantalla cuándo recargarse. |
+| `src/hooks/use-api.js` | Carga datos de la API y los **recarga sola** cuando llega un aviso de tiempo real. |
 | `src/lib/format.js` | Formatos de dinero (`$1.234,56`), fechas y nombres de estados. |
 | `src/pages/` | Una pantalla por archivo: `dashboard.jsx`, `pedidos/lista.jsx`, `pedidos/nuevo.jsx`, `pedidos/detalle.jsx`, `productos.jsx`, `clientes.jsx`, `inventario.jsx`, `reportes.jsx`, `equipo.jsx`, `perfil.jsx`, `login.jsx`. |
-| `src/components/` | Piezas propias: barra lateral, buscador (Ctrl+K), notificaciones, tabla con orden y paginación… |
-| `src/components/ui/` | Componentes de **shadcn/ui** (botón, tarjeta, tabla, diálogo, panel lateral, gráficos…). |
+| `src/components/` | Piezas propias: barra lateral, buscador (Ctrl+K), notificaciones, indicador *En vivo*, tabla con orden, paginación y **filas que se abren**, y `panel-en-linea.jsx` (los formularios que aparecen dentro de la página). |
+| `src/components/ui/` | Componentes de **shadcn/ui** (botón, tarjeta, tabla, selectores, menús, gráficos…). |
 | `Dockerfile` | Dos etapas: `node` compila la app con `npm run build` y `nginx` sirve el resultado. |
 
 Ejemplo de cómo se ve un componente de React con shadcn/ui:
@@ -377,6 +418,8 @@ Ejemplo de cómo se ve un componente de React con shadcn/ui:
 | Archivo | Qué hace |
 |---|---|
 | `docker-compose.yml` | Orquesta los 8 contenedores (ver sección 8). |
+| `docker-compose.debug.yml` | Opcional, solo para depurar: abre el puerto de cada servicio en tu PC. |
+| `docs/MercaUJAP-Guia.pdf` | Esta guía en PDF. |
 | `nginx/nginx.conf` + `Dockerfile` | API Gateway (ver sección 9). |
 | `database/init.sql` + `Dockerfile` | Crea las 3 bases de datos de PostgreSQL la primera vez. |
 | `.env.example` | Plantilla de variables de entorno. |
@@ -395,7 +438,7 @@ servicio-java:
     DATABASE_URL: jdbc:postgresql://postgres:5432/ordenes_db
     DB_USER: ${DB_USER:-admin}      # toma DB_USER del .env; si no existe usa "admin"
     USUARIOS_SERVICE_URL: http://servicio-python:8000
-  ports: ["8003:8080"]              # puerto de TU PC : puerto DENTRO del contenedor
+  # sin "ports": Java NO se ve desde tu PC, solo el gateway le habla por la red interna
   depends_on:
     postgres:
       condition: service_healthy    # no arranca hasta que PostgreSQL esté LISTO
@@ -407,6 +450,7 @@ servicio-java:
 | Concepto | Para qué sirve en este proyecto |
 |---|---|
 | **networks** | `backend` = red interna (bases de datos + servicios). `frontend` = red del frontend y el gateway. Las bases de datos **solo** están en `backend`, así que no se pueden alcanzar desde fuera. |
+| **ports** | Solo el **gateway** tiene `ports: ["${PUERTO:-8080}:8080"]` (puerto de TU PC : puerto DENTRO del contenedor). Es el **único puerto** del sistema; desde ahí se reparte a los demás. |
 | **healthcheck** | Cada servicio expone `/health`. Postgres usa `pg_isready` y Mongo usa `mongosh ping`. |
 | **depends_on + service_healthy** | Evita que los servicios arranquen antes que su base de datos, y el gateway antes que los servicios. |
 | **volumes** | `pgdata` y `mongodata` guardan los datos. Con `docker compose down` **no se pierden**. Con `down -v` sí se borran. |
@@ -430,10 +474,11 @@ location /api/ordenes {
 
 | El navegador pide... | Nginx lo manda a... | ¿Requiere sesión? |
 |---|---|---|
-| `http://localhost/` | `frontend:80` (la página web) | No |
+| `http://localhost:8080/` | `frontend:80` (la página web) | No |
 | `/api/auth/login` | `servicio-python:8000/auth/login` | No (máx. 10 por minuto) |
 | `/api/usuarios...` | `servicio-python:8000/usuarios...` | Sí |
 | `/api/productos...` · `/api/movimientos` | `servicio-node:3000/...` | Sí |
+| `/api/tiempo-real` (WebSocket) | `servicio-node:3000/tiempo-real` | Sí (el token va en `Sec-WebSocket-Protocol`) |
 | `/api/ordenes...` | `servicio-java:8080/ordenes...` | Sí |
 | `/api/reportes...` | `servicio-go:8080/reportes...` | Sí |
 | `/api/health/python` (node, java, go, gateway) | `/health` de cada servicio | No |
@@ -445,7 +490,7 @@ Ventajas: el frontend no necesita saber los puertos de cada servicio, no hay pro
 Para ver por dónde pasa cada petición:
 ```bash
 docker compose logs -f gateway
-# 172.18.0.1 [a1b2c3...] "GET /api/productos HTTP/1.1" -> 172.18.0.5:3000 [200] 0.004 s
+# 172.18.0.1 [a1b2c3...] "GET /api/productos" -> 172.18.0.5:3000 [200] 0.004 s
 ```
 
 ---
@@ -475,6 +520,18 @@ Cada servicio es independiente: se puede desarrollar, desplegar y escalar por se
 
 **¿Cómo se comunican los microservicios?**
 Por **HTTP con JSON** (REST), usando el **nombre del servicio** como dirección dentro de la red de Docker (`http://servicio-node:3000`). Java usa `RestClient`, Go usa `net/http`, Python usa `urllib` y Nginx usa `auth_request`.
+
+**¿Cómo funciona el tiempo real?**
+Con un **WebSocket**: el navegador deja una conexión abierta con Node (a través del gateway). Cuando Python, Java o Go cambian algo, le avisan a Node por HTTP (`POST /interno/eventos`) y Node lo reenvía a todos los navegadores, que recargan solo los datos afectados. Ver la sección 5.
+
+**¿Por qué el WebSocket está en Node?**
+Node maneja muy bien muchas conexiones abiertas al mismo tiempo (es asíncrono, con un solo hilo y eventos), y la librería `ws` es la estándar. Así los demás servicios no tienen que manejar conexiones: solo avisan con una petición HTTP.
+
+**¿Por qué un solo puerto?**
+Porque el gateway es la única puerta: se publica solo el **8080** y Nginx reparte a cada servicio por la red interna de Docker. Así los servicios y las bases de datos no quedan expuestos, la seguridad (token, límite de intentos) se aplica en un solo lugar y el navegador no tiene problemas de CORS.
+
+**¿Por qué el pago guarda el banco y la referencia por separado?**
+Para que la base de datos quede **ordenada**: se puede buscar un pedido por su referencia, validar que la referencia tenga solo números y hacer reportes por banco o por empresa de envío. Si todo estuviera en un texto libre ("Pago móvil ref. 004512") no se podría validar ni consultar bien.
 
 **¿Por qué cada servicio tiene su propia base de datos?**
 Es el patrón *database per service*: ningún servicio toca los datos de otro directamente; si los necesita, **se los pide por la API**. Por eso el pedido guarda el `usuarioId` y el `productoId` (más una copia del nombre y del precio del momento, para que el pedido no cambie si luego se edita el producto).
@@ -519,8 +576,8 @@ Es un *multi-stage build*: la primera etapa tiene las herramientas para compilar
 | Problema | Solución |
 |---|---|
 | `Cannot connect to the Docker daemon` / `docker: command not found` | Abre **Docker Desktop** y espera a que esté en verde. |
-| `port is already allocated` en el **puerto 80** | Otro programa usa el puerto 80 (en Windows suele ser IIS o Skype). En `docker-compose.yml`, servicio `gateway`, cambia `"80:80"` por `"8080:80"` y entra a http://localhost:8080 |
-| Lo mismo con 3000, 8001... 8004 | Cambia el número de la **izquierda** en `ports` de ese servicio. |
+| `port is already allocated` en el **puerto 8080** | Otro programa usa el 8080. Levanta con otro puerto: `PUERTO=9090 docker compose up --build` (o pon `PUERTO=9090` en el `.env`) y entra a http://localhost:9090 |
+| Arriba dice **"Sin conexión"** | El tiempo real se cortó (por ejemplo, `servicio-node` se está reiniciando). Se reconecta solo; si no, recarga la página. |
 | "Correo o contraseña incorrectos" con las cuentas demo | Si usaste una versión anterior del proyecto, la base de datos vieja sigue ahí: `docker compose down -v` y `docker compose up --build`. |
 | El panel dice "Datos incompletos" o la página no carga datos | Algún servicio todavía está arrancando (Java tarda ~30 s). Espera y recarga. Revisa con `docker compose ps`. |
 | Cambié el código y no se ve el cambio | Vuelve a ejecutar con `--build`: `docker compose up --build` |
@@ -558,3 +615,5 @@ docker compose logs -f servicio-java
 | **Componente (React)** | Pieza reutilizable de la interfaz (`<Button>`, `<Card>`…). |
 | **Swagger / OpenAPI** | Documentación interactiva de una API (FastAPI la genera sola en `/docs`). |
 | **CORS** | Regla del navegador que bloquea llamadas a otros dominios o puertos salvo que el servidor lo permita. |
+| **WebSocket** | Conexión que queda abierta para que el servidor le envíe avisos al navegador en tiempo real. |
+| **Número de guía** | Código con el que la empresa de envío (MRW, Zoom…) identifica un paquete para rastrearlo. |

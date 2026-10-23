@@ -1,21 +1,21 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { toast } from 'sonner';
-import { MoreHorizontal, Pencil, Power, ShieldCheck, Trash2, UserPlus } from 'lucide-react';
+import { MoreHorizontal, Pencil, Power, ShieldCheck, Trash2, TriangleAlert, UserPlus, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Spinner } from '@/components/ui/spinner';
 import { Badge } from '@/components/ui/badge';
 import { EncabezadoPagina } from '@/components/page-header';
 import { TablaDatos } from '@/components/tabla-datos';
 import { ActivoBadge, RolBadge } from '@/components/badges';
 import { Vacio } from '@/components/vacio';
+import { EncabezadoExpansion, PanelEnLinea, useCambioExterno } from '@/components/panel-en-linea';
 import { useConfirmar } from '@/components/confirmar';
 import { useApi } from '@/hooks/use-api';
 import { api } from '@/lib/api';
@@ -27,17 +27,15 @@ const PERMISOS = {
   vendedor: 'Registra pedidos, clientes y productos. No puede eliminar registros.',
 };
 
-function MiembroDialog({ abierto, onCambio, miembro, onGuardado }) {
+// Formulario de cuenta del personal, integrado en la pagina
+function MiembroForm({ miembro, onCancelar, onGuardado }) {
   const editando = !!miembro?.id;
-  const [form, setForm] = useState({ nombre: '', email: '', telefono: '', rol: 'vendedor', password: '' });
+  const [form, setForm] = useState(() =>
+    miembro ? { nombre: miembro.nombre, email: miembro.email, telefono: miembro.telefono ?? '', rol: miembro.rol, password: '' } : { nombre: '', email: '', telefono: '', rol: 'vendedor', password: '' }
+  );
   const [error, setError] = useState(null);
   const [guardando, setGuardando] = useState(false);
-
-  useEffect(() => {
-    if (!abierto) return;
-    setError(null);
-    setForm(miembro ? { nombre: miembro.nombre, email: miembro.email, telefono: miembro.telefono ?? '', rol: miembro.rol, password: '' } : { nombre: '', email: '', telefono: '', rol: 'vendedor', password: '' });
-  }, [abierto, miembro]);
+  const [cambioExterno] = useCambioExterno(miembro, ['nombre', 'email', 'rol', 'activo']);
 
   const campo = (n) => ({ id: 'eq-' + n, value: form[n], onChange: (e) => setForm((f) => ({ ...f, [n]: e.target.value })) });
 
@@ -49,8 +47,7 @@ function MiembroDialog({ abierto, onCambio, miembro, onGuardado }) {
     try {
       const m = editando ? await api(`/usuarios/${miembro.id}`, { method: 'PUT', body: cuerpo }) : await api('/usuarios', { method: 'POST', body: cuerpo });
       toast.success(editando ? 'Cuenta actualizada' : 'Cuenta creada', { description: `${m.nombre} · ${m.email}` });
-      onCambio(false);
-      onGuardado();
+      onGuardado(m);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -59,56 +56,58 @@ function MiembroDialog({ abierto, onCambio, miembro, onGuardado }) {
   };
 
   return (
-    <Dialog open={abierto} onOpenChange={onCambio}>
-      <DialogContent className="sm:max-w-md">
-        <form onSubmit={guardar} className="grid gap-5">
-          <DialogHeader>
-            <DialogTitle>{editando ? 'Editar cuenta' : 'Nueva cuenta del personal'}</DialogTitle>
-            <DialogDescription>Las cuentas del personal pueden iniciar sesión en el panel.</DialogDescription>
-          </DialogHeader>
-          {error && (
-            <Alert variant="destructive">
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
-          <FieldGroup className="gap-4">
-            <Field>
-              <FieldLabel htmlFor="eq-nombre">Nombre completo</FieldLabel>
-              <Input {...campo('nombre')} required minLength={2} />
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="eq-email">Correo (usuario de acceso)</FieldLabel>
-              <Input {...campo('email')} type="email" required />
-            </Field>
-            <Field>
-              <FieldLabel>Rol</FieldLabel>
-              <Select value={form.rol} onValueChange={(v) => setForm((f) => ({ ...f, rol: v }))}>
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="vendedor">Vendedor</SelectItem>
-                  <SelectItem value="admin">Administrador</SelectItem>
-                </SelectContent>
-              </Select>
-              <FieldDescription>{PERMISOS[form.rol]}</FieldDescription>
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="eq-password">{editando ? 'Nueva contraseña' : 'Contraseña'}</FieldLabel>
-              <Input {...campo('password')} type="password" minLength={6} required={!editando} autoComplete="new-password" placeholder={editando ? 'Déjala vacía para no cambiarla' : 'Mínimo 6 caracteres'} />
-            </Field>
-          </FieldGroup>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onCambio(false)}>
-              Cancelar
-            </Button>
-            <Button type="submit" disabled={guardando}>
-              {guardando && <Spinner />} {editando ? 'Guardar' : 'Crear cuenta'}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+    <form onSubmit={guardar} className="grid gap-5">
+      {cambioExterno && (
+        <Alert>
+          <TriangleAlert />
+          <AlertTitle>Otro administrador modificó esta cuenta</AlertTitle>
+          <AlertDescription>Revisa los datos antes de guardar para no reemplazar sus cambios.</AlertDescription>
+        </Alert>
+      )}
+      {error && (
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+      <FieldGroup className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Field>
+          <FieldLabel htmlFor="eq-nombre">Nombre completo</FieldLabel>
+          <Input {...campo('nombre')} required minLength={2} />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="eq-email">Correo (usuario de acceso)</FieldLabel>
+          <Input {...campo('email')} type="email" required />
+        </Field>
+        <Field>
+          <FieldLabel>Rol</FieldLabel>
+          <Select value={form.rol} onValueChange={(v) => setForm((f) => ({ ...f, rol: v }))}>
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="vendedor">Vendedor</SelectItem>
+              <SelectItem value="admin">Administrador</SelectItem>
+            </SelectContent>
+          </Select>
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="eq-password">{editando ? 'Nueva contraseña' : 'Contraseña'}</FieldLabel>
+          <Input {...campo('password')} type="password" minLength={6} required={!editando} autoComplete="new-password" placeholder={editando ? 'Vacía = no cambiarla' : 'Mínimo 6 caracteres'} />
+        </Field>
+        <FieldDescription className="sm:col-span-2 lg:col-span-4">
+          <ShieldCheck className="mr-1 inline size-3.5" />
+          {PERMISOS[form.rol]}
+        </FieldDescription>
+      </FieldGroup>
+      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+        <Button type="button" variant="outline" onClick={onCancelar}>
+          Cancelar
+        </Button>
+        <Button type="submit" disabled={guardando}>
+          {guardando && <Spinner />} {editando ? 'Guardar' : 'Crear cuenta'}
+        </Button>
+      </div>
+    </form>
   );
 }
 
@@ -116,7 +115,8 @@ export function Equipo() {
   const { usuario } = useAuth();
   const confirmar = useConfirmar();
   const { datos: equipo, cargando, recargar } = useApi('/usuarios?tipo=personal');
-  const [dialogo, setDialogo] = useState({ abierto: false, miembro: null });
+  const [creando, setCreando] = useState(false);
+  const [editandoId, setEditandoId] = useState(null);
 
   const alternar = async (m) => {
     try {
@@ -166,6 +166,7 @@ export function Equipo() {
       titulo: <span className="sr-only">Acciones</span>,
       className: 'w-10',
       celda: (m) => (
+        <div onClick={(e) => e.stopPropagation()}>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon-sm" aria-label="Acciones">
@@ -173,7 +174,7 @@ export function Equipo() {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem onSelect={() => setDialogo({ abierto: true, miembro: m })}>
+            <DropdownMenuItem onSelect={() => setEditandoId(m.id)}>
               <Pencil /> Editar
             </DropdownMenuItem>
             {m.id !== usuario.id && (
@@ -189,6 +190,7 @@ export function Equipo() {
             )}
           </DropdownMenuContent>
         </DropdownMenu>
+        </div>
       ),
     },
   ];
@@ -196,8 +198,8 @@ export function Equipo() {
   return (
     <>
       <EncabezadoPagina titulo="Equipo" descripcion="Cuentas del personal con acceso al panel y sus permisos.">
-        <Button onClick={() => setDialogo({ abierto: true, miembro: null })}>
-          <UserPlus /> Agregar miembro
+        <Button onClick={() => setCreando((v) => !v)} variant={creando ? 'outline' : 'default'}>
+          {creando ? <X /> : <UserPlus />} {creando ? 'Cerrar formulario' : 'Agregar miembro'}
         </Button>
       </EncabezadoPagina>
       <div className="grid gap-4 md:grid-cols-2">
@@ -215,12 +217,44 @@ export function Equipo() {
           </Card>
         ))}
       </div>
+      {creando && (
+        <PanelEnLinea icono={UserPlus} titulo="Nueva cuenta del personal" descripcion="Las cuentas del personal pueden iniciar sesión en el panel." onCerrar={() => setCreando(false)}>
+          <MiembroForm
+            onCancelar={() => setCreando(false)}
+            onGuardado={() => {
+              setCreando(false);
+              recargar({ silencioso: true });
+            }}
+          />
+        </PanelEnLinea>
+      )}
       <Card>
         <CardContent>
-          <TablaDatos columnas={columnas} filas={equipo} cargando={cargando} vacio={<Vacio icono={ShieldCheck} titulo="Sin miembros" />} />
+          <TablaDatos
+            columnas={columnas}
+            filas={equipo}
+            cargando={cargando}
+            tema="usuarios"
+            onFila={(m) => setEditandoId((id) => (id === m.id ? null : m.id))}
+            expandida={editandoId}
+            expansion={(m) => (
+              <>
+                <EncabezadoExpansion titulo={`Editar la cuenta de ${m.nombre}`} descripcion={m.email} onCerrar={() => setEditandoId(null)} />
+                <MiembroForm
+                  key={m.id}
+                  miembro={m}
+                  onCancelar={() => setEditandoId(null)}
+                  onGuardado={() => {
+                    setEditandoId(null);
+                    recargar({ silencioso: true });
+                  }}
+                />
+              </>
+            )}
+            vacio={<Vacio icono={ShieldCheck} titulo="Sin miembros" />}
+          />
         </CardContent>
       </Card>
-      <MiembroDialog abierto={dialogo.abierto} onCambio={(a) => setDialogo((d) => ({ ...d, abierto: a }))} miembro={dialogo.miembro} onGuardado={() => recargar({ silencioso: true })} />
     </>
   );
 }

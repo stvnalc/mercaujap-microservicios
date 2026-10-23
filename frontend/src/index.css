@@ -141,6 +141,13 @@
     }
 }
 
+/* Fila que otra persona acaba de cambiar (tiempo real) */
+@keyframes resaltar {
+  0%, 30% { background-color: color-mix(in oklch, var(--primary) 16%, transparent); }
+  100% { background-color: transparent; }
+}
+.animate-resaltar { animation: resaltar 3.5s ease-out; }
+
 /* Numeros alineados en tablas y tarjetas */
 .tabular { font-variant-numeric: tabular-nums; }
 

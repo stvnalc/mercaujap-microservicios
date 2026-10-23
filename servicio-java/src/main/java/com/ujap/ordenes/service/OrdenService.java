@@ -3,9 +3,13 @@ package com.ujap.ordenes.service;
 import com.ujap.ordenes.client.ServiciosClient;
 import com.ujap.ordenes.client.ServiciosClient.ProductoDto;
 import com.ujap.ordenes.client.ServiciosClient.UsuarioDto;
+import com.ujap.ordenes.dto.CambiarEstadoRequest;
 import com.ujap.ordenes.dto.CrearOrdenRequest;
 import com.ujap.ordenes.exception.ErrorNegocio;
+import com.ujap.ordenes.model.Bancos;
+import com.ujap.ordenes.model.EmpresaEnvio;
 import com.ujap.ordenes.model.EstadoOrden;
+import com.ujap.ordenes.model.MetodoEntrega;
 import com.ujap.ordenes.model.MetodoPago;
 import com.ujap.ordenes.model.Orden;
 import com.ujap.ordenes.model.OrdenItem;
@@ -87,7 +91,17 @@ public class OrdenService {
         orden.setUsuarioNombre(cliente.nombre());
         orden.setUsuarioEmail(cliente.email());
         orden.setUsuarioDocumento(cliente.documento());
-        orden.setDireccionEnvio(textoONulo(req.direccionEnvio()) != null ? req.direccionEnvio().trim() : cliente.direccion());
+        MetodoEntrega entrega = req.metodoEntrega() == null ? MetodoEntrega.ENVIO_NACIONAL : req.metodoEntrega();
+        orden.setMetodoEntrega(entrega);
+        if (entrega.usaDireccion()) {
+            String direccion = textoONulo(req.direccionEnvio()) != null ? req.direccionEnvio().trim() : textoONulo(cliente.direccion());
+            if (direccion == null) {
+                throw new ErrorNegocio(HttpStatus.BAD_REQUEST, "Indica la dirección de envío: el cliente no tiene una registrada");
+            }
+            orden.setDireccionEnvio(direccion);
+        }
+        // La empresa de encomiendas preferida se guarda desde ya; al despachar se confirma con el numero de guia
+        if (entrega == MetodoEntrega.ENVIO_NACIONAL) orden.setEmpresaEnvio(req.empresaEnvio());
         orden.setMetodoPago(req.metodoPago() == null ? MetodoPago.EFECTIVO : req.metodoPago());
         orden.setNotas(textoONulo(req.notas()));
         orden.setCreadoPor(usuarioActual);
@@ -118,7 +132,7 @@ public class OrdenService {
         orden.setSubtotal(subtotal);
         orden.setImpuesto(impuesto);
         orden.setTotal(subtotal.add(impuesto));
-        orden.registrarEstado(EstadoOrden.PENDIENTE, fecha, "Pedido registrado", usuarioActual);
+        orden.registrarEstado(EstadoOrden.PENDIENTE, fecha, entrega.getNombre() + " · " + orden.getMetodoPagoNombre(), null, usuarioActual);
 
         orden = repo.save(orden);
         orden.setCodigo(String.format("PED-%06d", orden.getId()));
@@ -138,25 +152,105 @@ public class OrdenService {
         }
     }
 
-    public Orden cambiarEstado(Long id, EstadoOrden nuevo, String nota, String usuarioActual) {
-        return cambiarEstado(id, nuevo, nota, usuarioActual, Instant.now());
+    public Orden cambiarEstado(Long id, CambiarEstadoRequest req, String usuarioActual) {
+        return cambiarEstado(id, req, usuarioActual, Instant.now());
     }
 
-    public Orden cambiarEstado(Long id, EstadoOrden nuevo, String nota, String usuarioActual, Instant cuando) {
+    /**
+     * Cambia el estado validando la maquina de estados y los datos que pide cada paso:
+     *   PAGADA    -> metodo de pago + (banco) + numero de referencia segun el metodo
+     *   ENVIADA   -> empresa de encomiendas + numero de guia (envio nacional)
+     *   ENTREGADA -> quien recibio (opcional)
+     *   CANCELADA -> motivo obligatorio; el stock vuelve al inventario
+     */
+    public Orden cambiarEstado(Long id, CambiarEstadoRequest req, String usuarioActual, Instant cuando) {
         Orden orden = obtener(id);
         EstadoOrden actual = orden.getEstado();
+        EstadoOrden nuevo = req.estado();
+        MetodoEntrega entrega = orden.getMetodoEntrega();
         if (actual == nuevo) {
             throw new ErrorNegocio(HttpStatus.CONFLICT, "El pedido ya está en estado " + nuevo);
         }
-        if (!actual.puedePasarA(nuevo)) {
+        if (!actual.puedePasarA(nuevo, entrega)) {
+            var permitidos = actual.siguientes(entrega);
             throw new ErrorNegocio(HttpStatus.CONFLICT,
-                    "No se puede pasar de " + actual + " a " + nuevo + ". Permitidos: " + (actual.siguientes().isEmpty() ? "ninguno (estado final)" : actual.siguientes()));
+                    "No se puede pasar de " + actual + " a " + nuevo + ". Permitidos: " + (permitidos.isEmpty() ? "ninguno (estado final)" : permitidos));
         }
-        if (nuevo == EstadoOrden.CANCELADA) {
-            devolverStock(orden.getItems(), "Pedido cancelado", orden.getCodigo(), usuarioActual, cuando);
-        }
-        orden.registrarEstado(nuevo, cuando, textoONulo(nota), usuarioActual);
+
+        String detalle = switch (nuevo) {
+            case PAGADA -> registrarPago(orden, req);
+            case ENVIADA -> registrarEnvio(orden, req);
+            case ENTREGADA -> registrarEntrega(orden, req);
+            case CANCELADA -> {
+                if (textoONulo(req.nota()) == null) {
+                    throw new ErrorNegocio(HttpStatus.BAD_REQUEST, "Indica el motivo de la cancelación");
+                }
+                devolverStock(orden.getItems(), "Pedido cancelado", orden.getCodigo(), usuarioActual, cuando);
+                yield "Stock devuelto al inventario";
+            }
+            case PENDIENTE -> null;
+        };
+        orden.registrarEstado(nuevo, cuando, detalle, textoONulo(req.nota()), usuarioActual);
         return repo.save(orden);
+    }
+
+    private String registrarPago(Orden orden, CambiarEstadoRequest req) {
+        // El cliente puede terminar pagando con un metodo distinto al que dijo al hacer el pedido
+        MetodoPago metodo = req.metodoPago() != null ? req.metodoPago() : orden.getMetodoPago();
+        if (metodo == null) metodo = MetodoPago.EFECTIVO;
+        String referencia = null;
+        String banco = null;
+        if (metodo.requiereReferencia()) {
+            referencia = textoONulo(req.referencia());
+            if (referencia == null) {
+                throw new ErrorNegocio(HttpStatus.BAD_REQUEST, "Indica el número de referencia del pago (" + metodo.getNombre() + ")");
+            }
+            // Se aceptan espacios o guiones al escribir, pero se guardan solo los digitos/letras
+            referencia = referencia.replaceAll("[\\s-]", "");
+            if (!referencia.matches(metodo.getFormatoReferencia())) {
+                throw new ErrorNegocio(HttpStatus.BAD_REQUEST, metodo.getErrorReferencia());
+            }
+            if (metodo == MetodoPago.ZELLE) referencia = referencia.toUpperCase();
+        }
+        if (metodo.requiereBanco()) {
+            banco = textoONulo(req.banco());
+            if (banco == null) throw new ErrorNegocio(HttpStatus.BAD_REQUEST, "Selecciona el banco de origen del pago");
+            if (!Bancos.existe(banco)) throw new ErrorNegocio(HttpStatus.BAD_REQUEST, "El banco seleccionado no es válido");
+        }
+        orden.setMetodoPago(metodo);
+        orden.setPagoReferencia(referencia);
+        orden.setPagoBanco(banco);
+
+        StringBuilder detalle = new StringBuilder(metodo.getNombre());
+        if (banco != null) detalle.append(" · ").append(Bancos.nombre(banco));
+        if (referencia != null) detalle.append(metodo == MetodoPago.TARJETA ? " · Aprobación " : " · Ref. ").append(referencia);
+        return detalle.toString();
+    }
+
+    private String registrarEnvio(Orden orden, CambiarEstadoRequest req) {
+        if (orden.getMetodoEntrega() == MetodoEntrega.DELIVERY) {
+            orden.setEmpresaEnvio(null);
+            orden.setNumeroGuia(null);
+            return "Delivery en camino";
+        }
+        EmpresaEnvio empresa = req.empresaEnvio() != null ? req.empresaEnvio() : orden.getEmpresaEnvio();
+        if (empresa == null) throw new ErrorNegocio(HttpStatus.BAD_REQUEST, "Selecciona la empresa de envío");
+        String guia = textoONulo(req.numeroGuia());
+        if (guia == null) throw new ErrorNegocio(HttpStatus.BAD_REQUEST, "Indica el número de guía de " + empresa.getNombre());
+        guia = guia.replaceAll("\\s", "").toUpperCase();
+        if (!guia.matches("[A-Z0-9-]{4,30}")) {
+            throw new ErrorNegocio(HttpStatus.BAD_REQUEST, "El número de guía solo puede tener letras, números y guiones (4 a 30)");
+        }
+        orden.setEmpresaEnvio(empresa);
+        orden.setNumeroGuia(guia);
+        return empresa.getNombre() + " · Guía " + guia;
+    }
+
+    private String registrarEntrega(Orden orden, CambiarEstadoRequest req) {
+        String recibe = textoONulo(req.recibidoPor());
+        orden.setRecibidoPor(recibe);
+        String accion = orden.getMetodoEntrega() == MetodoEntrega.RETIRO_TIENDA ? "Retirado en tienda" : "Entregado";
+        return recibe == null ? accion : accion + " · Recibió " + recibe;
     }
 
     /** Solo se pueden eliminar pedidos cancelados (el stock ya fue devuelto). */

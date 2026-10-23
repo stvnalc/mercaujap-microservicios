@@ -13,7 +13,9 @@ Endpoints:
   POST   /usuarios               -> crea un usuario
   PUT    /usuarios/{id}          -> actualiza un usuario
   DELETE /usuarios/{id}          -> elimina (consulta a servicio-java si tiene pedidos)
-Documentacion automatica (Swagger): http://localhost:8001/docs
+Cada cambio de usuarios se avisa a servicio-node (POST /interno/eventos), que lo reenvia
+por WebSocket a todos los paneles abiertos (tiempo real).
+Documentacion automatica (Swagger): http://localhost:8001/docs  (con docker-compose.debug.yml)
 """
 import json
 import os
@@ -22,9 +24,9 @@ import urllib.request
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import List, Literal, Optional
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -38,6 +40,7 @@ from database import Base, SessionLocal, engine, esperar_base_de_datos, get_db
 from seguridad import crear_token, hash_password, leer_token, verificar_password
 
 ORDENES_URL = os.getenv("ORDENES_SERVICE_URL", "http://localhost:8003")
+EVENTOS_URL = os.getenv("EVENTOS_URL", "http://localhost:3000/interno/eventos")
 
 CLIENTES_INICIALES = [
     ("María González", "maria.gonzalez@gmail.com", "V-18456789", "0414-1234567", "Av. Bolívar Norte, Valencia, Carabobo"),
@@ -174,6 +177,22 @@ def contar_pedidos(usuario_id: int) -> int:
         raise HTTPException(status_code=503, detail="No se pudo verificar el historial de pedidos. Intenta de nuevo")
 
 
+def publicar_evento(accion: str, usuario_id: int, mensaje: str, autor_id: Optional[str], autor_nombre: Optional[str]) -> None:
+    """COMUNICACION ENTRE SERVICIOS: avisa a servicio-node para que lo reenvie por WebSocket.
+    Se ejecuta en segundo plano (BackgroundTasks) despues de responder; si falla no afecta la operacion."""
+    autor = {"id": int(autor_id), "nombre": unquote(autor_nombre or "")} if autor_id and autor_id.isdigit() else None
+    cuerpo = json.dumps({"tema": "usuarios", "accion": accion, "id": usuario_id, "mensaje": mensaje, "usuario": autor}).encode()
+    peticion = urllib.request.Request(EVENTOS_URL, data=cuerpo, headers={"Content-Type": "application/json"}, method="POST")
+    try:
+        urllib.request.urlopen(peticion, timeout=2).close()
+    except (urllib.error.URLError, TimeoutError) as e:
+        print(f"[python] No se pudo publicar el evento en tiempo real: {e}")
+
+
+def describir(usuario: models.Usuario) -> str:
+    return f"al cliente {usuario.nombre}" if usuario.rol == "cliente" else f"la cuenta de {usuario.nombre}"
+
+
 # ---------------------------------------------------------------------
 # Salud
 # ---------------------------------------------------------------------
@@ -223,10 +242,17 @@ def verificar(
     response: Response,
     authorization: Optional[str] = Header(default=None),
     x_original_method: Optional[str] = Header(default=None),
+    sec_websocket_protocol: Optional[str] = Header(default=None),
     db: Session = Depends(get_db),
 ):
     """El API Gateway llama aqui ANTES de reenviar cada peticion a /api/...
-    200 = adelante (y devuelve quien es el usuario en cabeceras), 401 = sin sesion, 403 = sin permiso."""
+    200 = adelante (y devuelve quien es el usuario en cabeceras), 401 = sin sesion, 403 = sin permiso.
+    El navegador no puede enviar "Authorization" al abrir un WebSocket, asi que en ese caso el token
+    viaja como subprotocolo: Sec-WebSocket-Protocol: mercaujap, <token>."""
+    if not authorization and sec_websocket_protocol:
+        partes = [p.strip() for p in sec_websocket_protocol.split(",")]
+        if len(partes) == 2 and partes[0] == "mercaujap":
+            authorization = f"Bearer {partes[1]}"
     usuario = usuario_del_token(authorization, db)
     if (x_original_method or "").upper() == "DELETE" and usuario.rol != "admin":
         raise HTTPException(status_code=403, detail="Solo un administrador puede eliminar registros")
@@ -280,7 +306,10 @@ def obtener_usuario(usuario_id: int, db: Session = Depends(get_db)):
 @app.post("/usuarios", response_model=schemas.UsuarioRespuesta, status_code=201)
 def crear_usuario(
     datos: schemas.UsuarioCrear,
+    tareas: BackgroundTasks,
+    x_usuario_id: Optional[str] = Header(default=None),
     x_usuario_rol: Optional[str] = Header(default=None),
+    x_usuario_nombre: Optional[str] = Header(default=None),
     db: Session = Depends(get_db),
 ):
     exigir_admin_si_personal(x_usuario_rol, datos.rol)
@@ -297,6 +326,8 @@ def crear_usuario(
         db.rollback()
         raise HTTPException(status_code=409, detail="Ya existe un usuario con ese correo")
     db.refresh(usuario)
+    mensaje = f"Registró al cliente {usuario.nombre}" if usuario.rol == "cliente" else f"Creó la cuenta de {usuario.nombre}"
+    tareas.add_task(publicar_evento, "creado", usuario.id, mensaje, x_usuario_id, x_usuario_nombre)
     return usuario
 
 
@@ -304,8 +335,10 @@ def crear_usuario(
 def actualizar_usuario(
     usuario_id: int,
     datos: schemas.UsuarioActualizar,
+    tareas: BackgroundTasks,
     x_usuario_id: Optional[str] = Header(default=None),
     x_usuario_rol: Optional[str] = Header(default=None),
+    x_usuario_nombre: Optional[str] = Header(default=None),
     db: Session = Depends(get_db),
 ):
     usuario = buscar_usuario(db, usuario_id)
@@ -329,14 +362,21 @@ def actualizar_usuario(
         raise HTTPException(status_code=400, detail="Asigna una contraseña para la cuenta del personal")
     db.commit()
     db.refresh(usuario)
+    if set(cambios) == {"activo"}:
+        mensaje = f"{'Activó' if usuario.activo else 'Desactivó'} {describir(usuario)}"
+    else:
+        mensaje = f"Editó {'sus datos' if es_uno_mismo else describir(usuario)}"
+    tareas.add_task(publicar_evento, "actualizado", usuario.id, mensaje, x_usuario_id, x_usuario_nombre)
     return usuario
 
 
 @app.delete("/usuarios/{usuario_id}", status_code=204)
 def eliminar_usuario(
     usuario_id: int,
+    tareas: BackgroundTasks,
     x_usuario_id: Optional[str] = Header(default=None),
     x_usuario_rol: Optional[str] = Header(default=None),
+    x_usuario_nombre: Optional[str] = Header(default=None),
     db: Session = Depends(get_db),
 ):
     usuario = buscar_usuario(db, usuario_id)
@@ -352,5 +392,7 @@ def eliminar_usuario(
                 status_code=409,
                 detail=f"El cliente tiene {pedidos} pedido(s) registrados. Desactívalo en lugar de eliminarlo",
             )
+    mensaje = f"Eliminó {describir(usuario)}"
     db.delete(usuario)
     db.commit()
+    tareas.add_task(publicar_evento, "eliminado", usuario_id, mensaje, x_usuario_id, x_usuario_nombre)

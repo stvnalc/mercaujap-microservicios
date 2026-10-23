@@ -1,6 +1,14 @@
+import { Store, Truck, Bike } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { ESTADOS, ROLES } from '@/lib/format';
 import { cn } from '@/lib/utils';
+
+const ICONOS_ENTREGA = { RETIRO_TIENDA: Store, DELIVERY: Bike, ENVIO_NACIONAL: Truck };
+
+export function IconoEntrega({ metodo, className }) {
+  const Icono = ICONOS_ENTREGA[metodo] ?? Truck;
+  return <Icono className={className} />;
+}
 
 export function EstadoBadge({ estado, className }) {
   const e = ESTADOS[estado] ?? { etiqueta: estado, clase: '' };

@@ -1,0 +1,21 @@
+# =====================================================================
+#  SOLO PARA DEPURAR: publica el puerto de cada microservicio en tu PC
+#  para probarlos por separado (Swagger de Python, curl directo, etc.).
+#
+#      docker compose -f docker-compose.yml -f docker-compose.debug.yml up --build
+#
+#  En el uso normal NO hace falta: todo entra por el gateway (http://localhost:8080).
+# =====================================================================
+services:
+  servicio-python:
+    ports: ["8001:8000"]   # http://localhost:8001/docs (Swagger)
+  servicio-node:
+    ports: ["8002:3000"]
+  servicio-java:
+    ports: ["8003:8080"]
+  servicio-go:
+    ports: ["8004:8080"]
+  postgres:
+    ports: ["5432:5432"]
+  mongodb:
+    ports: ["27017:27017"]

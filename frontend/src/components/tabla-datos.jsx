@@ -1,15 +1,22 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { useTiempoReal } from '@/lib/tiempo-real';
 import { cn } from '@/lib/utils';
 
 /**
  * Tabla generica con ordenamiento y paginacion.
  * columnas: [{ id, titulo, celda: (fila) => nodo, valor?: (fila) => valor para ordenar, className, alinear: 'right' }]
+ * expandida + expansion: la fila con esa clave se abre y muestra debajo, en la misma tabla,
+ *   lo que devuelva expansion(fila) (detalle o formulario de edicion), sin tapar el resto de la pagina.
+ * tema: tema de tiempo real ("productos", "ordenes"...). Las filas que otra persona acaba de
+ *   cambiar se resaltan unos segundos.
  */
-export function TablaDatos({ columnas, filas, cargando, vacio, onFila, porPagina = 10, claveFila = (f) => f.id ?? f._id }) {
+export function TablaDatos({ columnas, filas, cargando, vacio, onFila, porPagina = 10, claveFila = (f) => f.id ?? f._id, expandida = null, expansion, tema }) {
+  const { recientes } = useTiempoReal();
+  const refExpansion = useRef(null);
   const [orden, setOrden] = useState(null); // { id, dir: 1 | -1 }
   const [pagina, setPagina] = useState(0);
 
@@ -32,6 +39,16 @@ export function TablaDatos({ columnas, filas, cargando, vacio, onFila, porPagina
     if (pagina > paginas - 1) setPagina(0);
   }, [paginas, pagina]);
   const visibles = ordenadas.slice(pagina * porPagina, pagina * porPagina + porPagina);
+
+  // Al abrir una fila (ej: desde una notificacion /productos?id=...) ir a su pagina y mostrarla
+  const indiceExpandida = expandida == null ? -1 : ordenadas.findIndex((f) => String(claveFila(f)) === String(expandida));
+  useEffect(() => {
+    if (indiceExpandida < 0) return;
+    setPagina(Math.floor(indiceExpandida / porPagina));
+    const t = setTimeout(() => refExpansion.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 60);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expandida, indiceExpandida >= 0]);
 
   const alternarOrden = (col) => {
     if (!col.valor) return;
@@ -87,19 +104,39 @@ export function TablaDatos({ columnas, filas, cargando, vacio, onFila, porPagina
                 </TableCell>
               </TableRow>
             ) : (
-              visibles.map((fila) => (
-                <TableRow
-                  key={claveFila(fila)}
-                  onClick={onFila ? () => onFila(fila) : undefined}
-                  className={cn(onFila && 'cursor-pointer')}
-                >
-                  {columnas.map((col) => (
-                    <TableCell key={col.id} className={cn(col.alinear === 'right' && 'text-right tabular', col.className)}>
-                      {col.celda(fila)}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))
+              visibles.map((fila) => {
+                const clave = claveFila(fila);
+                const abierta = expansion && expandida != null && String(clave) === String(expandida);
+                return (
+                  <Fragment key={clave}>
+                    <TableRow
+                      onClick={onFila ? () => onFila(fila) : undefined}
+                      data-state={abierta ? 'selected' : undefined}
+                      aria-expanded={expansion ? abierta : undefined}
+                      className={cn(
+                        onFila && 'cursor-pointer',
+                        abierta && 'border-b-0 bg-primary/5 hover:bg-primary/5 data-[state=selected]:bg-primary/5',
+                        tema && recientes.has(`${tema}:${clave}`) && 'animate-resaltar'
+                      )}
+                    >
+                      {columnas.map((col) => (
+                        <TableCell key={col.id} className={cn(col.alinear === 'right' && 'text-right tabular', col.className)}>
+                          {col.celda(fila)}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                    {abierta && (
+                      <TableRow className="bg-primary/5 hover:bg-primary/5">
+                        <TableCell colSpan={columnas.length} className="p-0 whitespace-normal">
+                          <div ref={refExpansion} className="scroll-mt-20 border-l-2 border-primary px-3 pb-4 pt-1 animate-in fade-in-0 slide-in-from-top-1 sm:px-4">
+                            {expansion(fila)}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </Fragment>
+                );
+              })
             )}
           </TableBody>
         </Table>

@@ -10,6 +10,9 @@
 //	GET    /reportes/:id         -> un reporte guardado (con todo el detalle)
 //	GET    /reportes/:id/csv     -> descarga el reporte en CSV (se abre con Excel)
 //	DELETE /reportes/:id         -> elimina un reporte guardado
+//
+// Al guardar o eliminar un reporte avisa a servicio-node (POST /interno/eventos) para que
+// los paneles abiertos actualicen la lista en tiempo real.
 package main
 
 import (
@@ -36,6 +39,7 @@ type Config struct {
 	UsuariosURL  string
 	ProductosURL string
 	OrdenesURL   string
+	EventosURL   string
 }
 
 func env(nombre, porDefecto string) string {
@@ -53,6 +57,7 @@ func cargarConfig() Config {
 		UsuariosURL:  env("USUARIOS_SERVICE_URL", "http://localhost:8001"),
 		ProductosURL: env("PRODUCTOS_SERVICE_URL", "http://localhost:8002"),
 		OrdenesURL:   env("ORDENES_SERVICE_URL", "http://localhost:8003"),
+		EventosURL:   env("EVENTOS_URL", "http://localhost:8002/interno/eventos"),
 	}
 }
 
@@ -179,6 +184,7 @@ func main() {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "No se pudo guardar el reporte"})
 			return
 		}
+		publicarEvento(cfg, c, "creado", reporte.ID, "Generó el reporte \""+reporte.Titulo+"\"")
 		c.JSON(http.StatusCreated, reporte.aJSON(true))
 	})
 
@@ -224,11 +230,16 @@ func main() {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Id inválido"})
 			return
 		}
-		res := db.Delete(&Reporte{}, id)
-		if res.Error != nil || res.RowsAffected == 0 {
+		var reporte Reporte
+		if db.Select("id", "titulo").First(&reporte, id).Error != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Reporte no encontrado"})
 			return
 		}
+		if err := db.Delete(&Reporte{}, id).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "No se pudo eliminar el reporte"})
+			return
+		}
+		publicarEvento(cfg, c, "eliminado", reporte.ID, "Eliminó el reporte \""+reporte.Titulo+"\"")
 		c.Status(http.StatusNoContent)
 	})
 

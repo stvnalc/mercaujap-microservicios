@@ -3,10 +3,9 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts';
 import { startOfMonth, subDays, subMonths, endOfMonth } from 'date-fns';
-import { ArrowLeft, Download, FileBarChart, FilePlus2, Printer, Trash2 } from 'lucide-react';
+import { ArrowLeft, Download, FileBarChart, FilePlus2, Printer, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -18,6 +17,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { EncabezadoPagina } from '@/components/page-header';
 import { TablaDatos } from '@/components/tabla-datos';
 import { Vacio } from '@/components/vacio';
+import { PanelEnLinea } from '@/components/panel-en-linea';
 import { useConfirmar } from '@/components/confirmar';
 import { useApi } from '@/hooks/use-api';
 import { api, descargar } from '@/lib/api';
@@ -32,7 +32,8 @@ const RANGOS = {
   anterior: { etiqueta: 'Mes anterior', rango: () => [startOfMonth(subMonths(hoy(), 1)), endOfMonth(subMonths(hoy(), 1))] },
 };
 
-function GenerarDialog({ abierto, onCambio, onCreado }) {
+// Formulario para generar un reporte, integrado en la pagina
+function GenerarForm({ onCancelar, onCreado }) {
   const [rango, setRango] = useState('30d');
   const [desde, setDesde] = useState(isoDia(subDays(hoy(), 29)));
   const [hasta, setHasta] = useState(isoDia(hoy()));
@@ -55,8 +56,6 @@ function GenerarDialog({ abierto, onCambio, onCreado }) {
     try {
       const r = await api('/reportes', { method: 'POST', body: { titulo, desde, hasta } });
       toast.success('Reporte generado', { description: r.titulo });
-      onCambio(false);
-      setTitulo('');
       onCreado(r);
     } catch (err) {
       setError(err.message);
@@ -66,54 +65,47 @@ function GenerarDialog({ abierto, onCambio, onCreado }) {
   };
 
   return (
-    <Dialog open={abierto} onOpenChange={onCambio}>
-      <DialogContent className="sm:max-w-md">
-        <form onSubmit={generar} className="grid gap-5">
-          <DialogHeader>
-            <DialogTitle>Generar reporte</DialogTitle>
-            <DialogDescription>Se guarda una foto de las ventas, el inventario y los clientes del período elegido.</DialogDescription>
-          </DialogHeader>
-          {error && (
-            <Alert variant="destructive">
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
-          <FieldGroup className="gap-4">
-            <ToggleGroup type="single" variant="outline" size="sm" value={rango} onValueChange={elegirRango} className="w-full">
-              {Object.entries(RANGOS).map(([k, r]) => (
-                <ToggleGroupItem key={k} value={k} className="flex-1 text-xs">
-                  {r.etiqueta}
-                </ToggleGroupItem>
-              ))}
-            </ToggleGroup>
-            <div className="grid grid-cols-2 gap-3">
-              <Field>
-                <FieldLabel htmlFor="rep-desde">Desde</FieldLabel>
-                <Input id="rep-desde" type="date" value={desde} max={hasta} onChange={(e) => (setDesde(e.target.value), setRango(''))} required />
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="rep-hasta">Hasta</FieldLabel>
-                <Input id="rep-hasta" type="date" value={hasta} min={desde} onChange={(e) => (setHasta(e.target.value), setRango(''))} required />
-              </Field>
-            </div>
-            <Field>
-              <FieldLabel htmlFor="rep-titulo">
-                Título <span className="font-normal text-muted-foreground">(opcional)</span>
-              </FieldLabel>
-              <Input id="rep-titulo" value={titulo} onChange={(e) => setTitulo(e.target.value)} placeholder="Ej: Cierre de octubre" maxLength={120} />
-            </Field>
-          </FieldGroup>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onCambio(false)}>
-              Cancelar
-            </Button>
-            <Button type="submit" disabled={guardando}>
-              {guardando && <Spinner />} Generar
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+    <form onSubmit={generar} className="grid gap-5">
+      {error && (
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+      <FieldGroup className="grid gap-4 lg:grid-cols-[auto_1fr_1fr_2fr] lg:items-end">
+        <Field>
+          <FieldLabel>Período</FieldLabel>
+          <ToggleGroup type="single" variant="outline" size="sm" value={rango} onValueChange={elegirRango} className="h-9 w-full">
+            {Object.entries(RANGOS).map(([k, r]) => (
+              <ToggleGroupItem key={k} value={k} className="h-9 flex-1 px-3 text-xs">
+                {r.etiqueta}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="rep-desde">Desde</FieldLabel>
+          <Input id="rep-desde" type="date" value={desde} max={hasta} onChange={(e) => (setDesde(e.target.value), setRango(''))} required />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="rep-hasta">Hasta</FieldLabel>
+          <Input id="rep-hasta" type="date" value={hasta} min={desde} onChange={(e) => (setHasta(e.target.value), setRango(''))} required />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="rep-titulo">
+            Título <span className="font-normal text-muted-foreground">(opcional)</span>
+          </FieldLabel>
+          <Input id="rep-titulo" value={titulo} onChange={(e) => setTitulo(e.target.value)} placeholder="Ej: Cierre de octubre" maxLength={120} />
+        </Field>
+      </FieldGroup>
+      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+        <Button type="button" variant="outline" onClick={onCancelar}>
+          Cancelar
+        </Button>
+        <Button type="submit" disabled={guardando}>
+          {guardando && <Spinner />} Generar reporte
+        </Button>
+      </div>
+    </form>
   );
 }
 
@@ -150,16 +142,22 @@ export function Reportes() {
   return (
     <>
       <EncabezadoPagina titulo="Reportes" descripcion="Reportes guardados del desempeño de la tienda. Puedes descargarlos en Excel (CSV) o imprimirlos.">
-        <Button onClick={() => setAbierto(true)}>
-          <FilePlus2 /> Generar reporte
+        <Button onClick={() => setAbierto((v) => !v)} variant={abierto ? 'outline' : 'default'}>
+          {abierto ? <X /> : <FilePlus2 />} {abierto ? 'Cerrar formulario' : 'Generar reporte'}
         </Button>
       </EncabezadoPagina>
+      {abierto && (
+        <PanelEnLinea icono={FilePlus2} titulo="Generar reporte" descripcion="Se guarda una foto de las ventas, el inventario y los clientes del período elegido." onCerrar={() => setAbierto(false)} enfocar={false}>
+          <GenerarForm onCancelar={() => setAbierto(false)} onCreado={(r) => navegar(`/reportes/${r.id}`)} />
+        </PanelEnLinea>
+      )}
       <Card>
         <CardContent>
           <TablaDatos
             columnas={columnas}
             filas={reportes}
             cargando={cargando}
+            tema="reportes"
             onFila={(r) => navegar(`/reportes/${r.id}`)}
             vacio={
               <Vacio icono={FileBarChart} titulo="Aún no hay reportes" descripcion="Genera el primero para guardar una foto del negocio.">
@@ -171,7 +169,6 @@ export function Reportes() {
           />
         </CardContent>
       </Card>
-      <GenerarDialog abierto={abierto} onCambio={setAbierto} onCreado={(r) => navegar(`/reportes/${r.id}`)} />
     </>
   );
 }
@@ -313,6 +310,9 @@ export function DetalleReporte() {
         <TablaSimple titulo="Mejores clientes" columnas={['Cliente', 'Pedidos', 'Total']} filas={r.topClientes.map((c) => [c.nombre, num(c.ordenes), dinero(c.gastado)])} />
         <TablaSimple titulo="Ventas por categoría" columnas={['Categoría', 'Unidades', 'Ingresos']} filas={r.ventasPorCategoria.map((c) => [c.categoria, num(c.unidades), dinero(c.ingresos)])} />
         <TablaSimple titulo="Métodos de pago" columnas={['Método', 'Pedidos', 'Total']} filas={r.ventasPorMetodoPago.map((m) => [METODOS_PAGO[m.metodo] ?? m.metodo, num(m.ordenes), dinero(m.total)])} />
+        {r.ventasPorEntrega && (
+          <TablaSimple titulo="Formas de entrega" columnas={['Entrega', 'Pedidos', 'Total']} filas={r.ventasPorEntrega.map((m) => [m.metodo, num(m.ordenes), dinero(m.total)])} />
+        )}
         <TablaSimple
           titulo="Pedidos por estado"
           columnas={['Estado', 'Pedidos']}
